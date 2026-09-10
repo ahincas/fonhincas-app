@@ -24,8 +24,10 @@
   if (qs.get('monto')) document.getElementById('montoSolicitud').value = qs.get('monto');
   if (qs.get('plazo')) cuotasInput.value = Math.min(parseInt(qs.get('plazo'), 10) || 0, MAX_CUOTAS);
 
-  // Carga la lista de servicios válidos desde CONFIGURACION.
-  FonhincasAPI.fetchJson({ accion: 'servicios' })
+  // Carga la lista de servicios válidos desde CONFIGURACION (cacheada 5 min por pestaña).
+  FonhincasAPI.cached('servicios', 5 * 60 * 1000, function () {
+    return FonhincasAPI.fetchJson({ accion: 'servicios' });
+  })
     .then(function (json) {
       if (!json.ok) throw new Error(json.error || 'No fue posible cargar los servicios.');
       servicioSelect.innerHTML = '<option value="" disabled selected>Selecciona un servicio</option>' +

@@ -62,5 +62,31 @@ window.FonhincasAPI = (function () {
       });
   }
 
-  return { fetchJson: fetchJson, postJson: postJson };
+  /**
+   * Evita pedir dos veces, dentro de la misma pestaña, datos que casi no cambian
+   * (servicios, tipos de movimiento). Guarda la respuesta en sessionStorage con
+   * un TTL; navegaciones posteriores entre páginas reutilizan la copia en caché
+   * en vez de esperar otra vez al backend.
+   */
+  function cached(key, ttlMs, loaderFn) {
+    var storageKey = 'fh_cache_' + key;
+    try {
+      var raw = sessionStorage.getItem(storageKey);
+      if (raw) {
+        var entry = JSON.parse(raw);
+        if (Date.now() - entry.t < ttlMs) return Promise.resolve(entry.v);
+      }
+    } catch (e) {
+      // sessionStorage puede no estar disponible (modo privado, etc.); seguimos sin caché.
+    }
+
+    return loaderFn().then(function (json) {
+      if (json && json.ok) {
+        try { sessionStorage.setItem(storageKey, JSON.stringify({ t: Date.now(), v: json })); } catch (e) {}
+      }
+      return json;
+    });
+  }
+
+  return { fetchJson: fetchJson, postJson: postJson, cached: cached };
 })();

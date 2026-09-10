@@ -19,6 +19,84 @@ var PRESTAMOS_HEADERS = [
   'Fecha de pago', 'Observaciones', 'PDF', 'Pagado', 'Debe', 'Cuotas faltan', 'Siguiente cuota', 'Estado'
 ];
 
+/**
+ * ---------- Rendimiento ----------
+ * SpreadsheetApp.openById() y la lectura de CONFIGURACION se repetían varias veces
+ * por cada solicitud (hasta 4 lecturas separadas de la misma hoja de configuración
+ * en una sola aprobación de préstamo). getLibro_() cachea el libro por ejecución;
+ * leerConfiguracion_() lee CONFIGURACION una sola vez por ejecución y, además,
+ * cachea el resultado entre ejecuciones (CacheService, 60s) ya que cambia muy poco.
+ */
+var _libroCache = null;
+function getLibro_() {
+  if (!_libroCache) _libroCache = SpreadsheetApp.openById(SPREADSHEET_ID);
+  return _libroCache;
+}
+
+var _configCache = null;
+function leerConfiguracion_() {
+  if (_configCache) return _configCache;
+
+  try {
+    var enCache = CacheService.getScriptCache().get('config_v1');
+    if (enCache) {
+      _configCache = JSON.parse(enCache);
+      return _configCache;
+    }
+  } catch (err) {
+    // Si CacheService falla por cualquier razón, seguimos con la lectura normal de la hoja.
+  }
+
+  var sheet = getLibro_().getSheetByName('CONFIGURACION');
+  if (!sheet) throw new Error('No se encontró la hoja CONFIGURACION.');
+  var data = sheet.getDataRange().getValues();
+
+  var config = { tasaMensual: null, servicios: [], administradores: [], tiposMovimiento: [] };
+
+  for (var r = 0; r < data.length; r++) {
+    for (var c = 0; c < data[r].length; c++) {
+      var etiqueta = String(data[r][c]).trim().toUpperCase();
+      var siguiente = String(data[r][c + 1]).trim().toUpperCase();
+
+      if (etiqueta === 'TASA_MENSUAL' && config.tasaMensual === null) {
+        config.tasaMensual = Number(data[r + 1] && data[r + 1][c]);
+      } else if (etiqueta === 'NOMBRE_SERVICIO' && !config.servicios.length) {
+        for (var i1 = r + 1; i1 < data.length; i1++) {
+          var svc = String(data[i1][c]).trim();
+          if (!svc) break;
+          config.servicios.push(svc);
+        }
+      } else if (etiqueta === 'USUARIO' && siguiente === 'CONTRASEÑA' && !config.administradores.length) {
+        for (var i2 = r + 1; i2 < data.length; i2++) {
+          var usr = String(data[i2][c]).trim();
+          if (!usr) break;
+          config.administradores.push({ usuario: usr, contrasena: String(data[i2][c + 1]) });
+        }
+      } else if (etiqueta === 'TIPO' && siguiente === 'MOVIMIENTO' && !config.tiposMovimiento.length) {
+        for (var i3 = r + 1; i3 < data.length; i3++) {
+          var tipo = String(data[i3][c]).trim();
+          if (!tipo) break;
+          var signo = String(data[i3][c + 1]).trim().toUpperCase();
+          config.tiposMovimiento.push({ tipo: tipo, signo: (signo === '+' || signo === 'SUMA') ? '+' : '-' });
+        }
+      }
+    }
+  }
+
+  if (!(config.tasaMensual > 0)) throw new Error('TASA_MENSUAL no tiene un valor numérico válido en CONFIGURACION.');
+  if (!config.servicios.length) throw new Error('No se encontró la columna NOMBRE_SERVICIO en CONFIGURACION.');
+  if (!config.administradores.length) throw new Error('No se encontraron las columnas Usuario/Contraseña en CONFIGURACION.');
+  if (!config.tiposMovimiento.length) throw new Error('No se encontraron las columnas TIPO/MOVIMIENTO en CONFIGURACION.');
+
+  _configCache = config;
+  try {
+    CacheService.getScriptCache().put('config_v1', JSON.stringify(config), 60);
+  } catch (err) {
+    // Sin caché entre ejecuciones no pasa nada grave; ya quedó en _configCache para esta ejecución.
+  }
+  return config;
+}
+
 /** Ejecuta esta función manualmente una vez desde el editor para autorizar los permisos (hoja de cálculo, correo, calendario y Drive/Docs). */
 function autorizarPermisos() {
   getServiciosDisponibles_();
@@ -158,26 +236,9 @@ function validarAdmin_(usuario, contrasena) {
   throw new Error('Usuario o contraseña incorrectos.');
 }
 
-/** Lee los pares Usuario/Contraseña de CONFIGURACION: columna "Usuario" y, en la columna inmediatamente a la derecha, "Contraseña". */
+/** Usuario/Contraseña configurados en CONFIGURACION (ver leerConfiguracion_). */
 function getAdministradores_() {
-  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('CONFIGURACION');
-  if (!sheet) throw new Error('No se encontró la hoja CONFIGURACION.');
-
-  var data = sheet.getDataRange().getValues();
-  for (var r = 0; r < data.length; r++) {
-    for (var c = 0; c < data[r].length; c++) {
-      if (String(data[r][c]).trim().toUpperCase() === 'USUARIO' && String(data[r][c + 1]).trim().toUpperCase() === 'CONTRASEÑA') {
-        var administradores = [];
-        for (var i = r + 1; i < data.length; i++) {
-          var usuario = String(data[i][c]).trim();
-          if (!usuario) break;
-          administradores.push({ usuario: usuario, contrasena: String(data[i][c + 1]) });
-        }
-        return administradores;
-      }
-    }
-  }
-  throw new Error('No se encontraron las columnas Usuario/Contraseña en CONFIGURACION.');
+  return leerConfiguracion_().administradores;
 }
 
 /** Lista las solicitudes pendientes (hoja SOLICITUD), con el número de fila como identificador. */
@@ -385,7 +446,7 @@ function limpiarDatosPrueba_() {
 
 /** Obtiene la hoja PRESTAMOS_ACTIVOS, creándola (o migrando sus encabezados, si está vacía) según PRESTAMOS_HEADERS. */
 function getOCrearHojaPrestamos_() {
-  var libro = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var libro = getLibro_();
   var sheet = libro.getSheetByName(HOJA_PRESTAMOS);
   if (!sheet) {
     sheet = libro.insertSheet(HOJA_PRESTAMOS);
@@ -413,7 +474,7 @@ function forzarFormatoNumericoPrestamos_(sheet) {
 
 /** Obtiene la hoja PRESTAMOS_HISTORIAL, creándola con encabezados si todavía no existe. */
 function getOCrearHojaHistorial_() {
-  var libro = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var libro = getLibro_();
   var sheet = libro.getSheetByName(HOJA_HISTORIAL);
   if (!sheet) {
     sheet = libro.insertSheet(HOJA_HISTORIAL);
@@ -425,7 +486,7 @@ function getOCrearHojaHistorial_() {
 
 /** Obtiene la hoja MOVIMIENTOS, creándola con encabezados si todavía no existe. */
 function getOCrearHojaMovimientos_() {
-  var libro = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var libro = getLibro_();
   var sheet = libro.getSheetByName(HOJA_MOVIMIENTOS);
   if (!sheet) {
     sheet = libro.insertSheet(HOJA_MOVIMIENTOS);
@@ -435,28 +496,9 @@ function getOCrearHojaMovimientos_() {
   return sheet;
 }
 
-/** Lee los pares Tipo/Movimiento de CONFIGURACION: columna "TIPO" y, en la columna inmediatamente a la derecha, "MOVIMIENTO" ('+' o '-'). */
+/** Tipos de movimiento (Tipo/Movimiento) configurados en CONFIGURACION (ver leerConfiguracion_). */
 function getTiposMovimiento_() {
-  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('CONFIGURACION');
-  if (!sheet) throw new Error('No se encontró la hoja CONFIGURACION.');
-
-  var data = sheet.getDataRange().getValues();
-  for (var r = 0; r < data.length; r++) {
-    for (var c = 0; c < data[r].length; c++) {
-      if (String(data[r][c]).trim().toUpperCase() === 'TIPO' && String(data[r][c + 1]).trim().toUpperCase() === 'MOVIMIENTO') {
-        var tipos = [];
-        for (var i = r + 1; i < data.length; i++) {
-          var tipo = String(data[i][c]).trim();
-          if (!tipo) break;
-          var signo = String(data[i][c + 1]).trim().toUpperCase();
-          var esPositivo = signo === '+' || signo === 'SUMA';
-          tipos.push({ tipo: tipo, signo: esPositivo ? '+' : '-' });
-        }
-        return tipos;
-      }
-    }
-  }
-  throw new Error('No se encontraron las columnas TIPO/MOVIMIENTO en CONFIGURACION.');
+  return leerConfiguracion_().tiposMovimiento;
 }
 
 /** Lista los préstamos activos (hoja PRESTAMOS_ACTIVOS), con su estado de pago. */
@@ -490,10 +532,13 @@ function getFilaPrestamoPorId_(idPrestamo) {
   throw new Error('No existe un préstamo activo con ese ID.');
 }
 
-/** Recalcula Pagado/Debe/Cuotas faltan/Siguiente cuota/Estado de un préstamo a partir de sus movimientos positivos. */
-function recalcularPrestamo_(idPrestamo) {
+/**
+ * Recalcula Pagado/Debe/Cuotas faltan/Siguiente cuota/Estado de un préstamo a partir de sus movimientos positivos.
+ * Si ya se conoce la fila (porque quien llama la acaba de ubicar), pásala en filaConocida para no releer toda la hoja.
+ */
+function recalcularPrestamo_(idPrestamo, filaConocida) {
   var hojaPrestamos = getOCrearHojaPrestamos_();
-  var fila = getFilaPrestamoPorId_(idPrestamo);
+  var fila = filaConocida || getFilaPrestamoPorId_(idPrestamo);
   var datos = hojaPrestamos.getRange(fila, 1, 1, PRESTAMOS_HEADERS.length).getValues()[0];
 
   var monto = numeroDeCelda_(datos[4]), cuotas = numeroDeCelda_(datos[5]);
@@ -561,17 +606,14 @@ function registrarMovimiento_(body) {
   if (tipoInfo.signo === '-' && cantidad > 0) throw new Error('Para "' + tipo + '" la cantidad debe ser negativa.');
   if (tipoInfo.signo === '+' && cantidad < 0) throw new Error('Para "' + tipo + '" la cantidad debe ser positiva.');
 
-  var prestamos = listarPrestamosActivos_();
-  var prestamo = null;
-  for (var p = 0; p < prestamos.length; p++) {
-    if (prestamos[p].idPrestamo === idPrestamo) { prestamo = prestamos[p]; break; }
-  }
-  if (!prestamo) throw new Error('No existe un préstamo activo con ese ID.');
+  var hojaPrestamos = getOCrearHojaPrestamos_();
+  var fila = getFilaPrestamoPorId_(idPrestamo); // única lectura completa de PRESTAMOS_ACTIVOS para esta operación
+  var nombrePrestamo = hojaPrestamos.getRange(fila, 4, 1, 1).getValue();
 
-  var resultado = insertarMovimiento_(tipo, idPrestamo, prestamo.nombre, cantidad, comentarios);
-  var estadoPrestamo = recalcularPrestamo_(idPrestamo);
+  var resultado = insertarMovimiento_(tipo, idPrestamo, nombrePrestamo, cantidad, comentarios);
+  var estadoPrestamo = recalcularPrestamo_(idPrestamo, fila);
 
-  return { id: resultado.id, fecha: resultado.fecha, nombre: prestamo.nombre, prestamo: estadoPrestamo };
+  return { id: resultado.id, fecha: resultado.fecha, nombre: nombrePrestamo, prestamo: estadoPrestamo };
 }
 
 /** Agrega una fila a MOVIMIENTOS con ID consecutivo (desde 0) y fecha automáticos. */
@@ -587,7 +629,7 @@ function insertarMovimiento_(tipo, idPrestamo, nombre, cantidad, comentarios) {
 
 /** Obtiene la hoja SOLICITUD, creándola con encabezados si todavía no existe. */
 function getOCrearHojaSolicitudes_() {
-  var libro = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var libro = getLibro_();
   var sheet = libro.getSheetByName(HOJA_SOLICITUDES);
   if (!sheet) {
     sheet = libro.insertSheet(HOJA_SOLICITUDES);
@@ -629,45 +671,14 @@ function notificarSolicitud_(datos) {
   MailApp.sendEmail(CORREO_NOTIFICACION, asunto, cuerpo);
 }
 
-/** Lee la lista de servicios válidos: todos los valores bajo la columna NOMBRE_SERVICIO en CONFIGURACION. */
+/** Lista de servicios válidos (columna NOMBRE_SERVICIO) configurada en CONFIGURACION (ver leerConfiguracion_). */
 function getServiciosDisponibles_() {
-  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('CONFIGURACION');
-  if (!sheet) throw new Error('No se encontró la hoja CONFIGURACION.');
-
-  var data = sheet.getDataRange().getValues();
-  for (var r = 0; r < data.length; r++) {
-    for (var c = 0; c < data[r].length; c++) {
-      if (String(data[r][c]).trim().toUpperCase() === 'NOMBRE_SERVICIO') {
-        var servicios = [];
-        for (var i = r + 1; i < data.length; i++) {
-          var valor = String(data[i][c]).trim();
-          if (!valor) break;
-          servicios.push(valor);
-        }
-        return servicios;
-      }
-    }
-  }
-  throw new Error('No se encontró la columna NOMBRE_SERVICIO en CONFIGURACION.');
+  return leerConfiguracion_().servicios;
 }
 
-/** Lee el valor en la celda inmediatamente debajo de la etiqueta TASA_MENSUAL, en la hoja CONFIGURACION. */
+/** Tasa mensual (TASA_MENSUAL) configurada en CONFIGURACION (ver leerConfiguracion_). */
 function getTasaMensual_() {
-  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('CONFIGURACION');
-  if (!sheet) throw new Error('No se encontró la hoja CONFIGURACION.');
-
-  var data = sheet.getDataRange().getValues();
-  for (var r = 0; r < data.length; r++) {
-    for (var c = 0; c < data[r].length; c++) {
-      if (String(data[r][c]).trim().toUpperCase() === 'TASA_MENSUAL') {
-        var valor = data[r + 1] && data[r + 1][c];
-        var tasa = Number(valor);
-        if (!(tasa > 0)) throw new Error('TASA_MENSUAL no tiene un valor numérico válido.');
-        return tasa;
-      }
-    }
-  }
-  throw new Error('No se encontró la etiqueta TASA_MENSUAL en CONFIGURACION.');
+  return leerConfiguracion_().tasaMensual;
 }
 
 /** Modo 1: conocido el monto y el plazo, calcula la cuota fija (sistema de amortización francés). */

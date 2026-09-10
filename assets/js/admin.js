@@ -338,7 +338,11 @@
     mostrarVista(vistaPago);
 
     Promise.all([
-      FonhincasAPI.postJson({ accion: 'tiposMovimiento', usuario: sesion.usuario, contrasena: sesion.contrasena }),
+      // Tipos de movimiento cambian poquísimo: cacheados 5 min por pestaña.
+      FonhincasAPI.cached('tiposMovimiento', 5 * 60 * 1000, function () {
+        return FonhincasAPI.postJson({ accion: 'tiposMovimiento', usuario: sesion.usuario, contrasena: sesion.contrasena });
+      }),
+      // Los préstamos activos SÍ deben quedar siempre frescos (debe/pagado cambian con cada pago): sin caché.
       FonhincasAPI.postJson({ accion: 'listarPrestamosActivos', usuario: sesion.usuario, contrasena: sesion.contrasena })
     ]).then(function (respuestas) {
       var rTipos = respuestas[0], rPrestamos = respuestas[1];
