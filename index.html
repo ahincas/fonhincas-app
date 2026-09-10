@@ -19,7 +19,7 @@
         <span class="logo__word">Fonhincas</span>
       </a>
       <nav class="nav__links"></nav>
-      <span class="nav__version">v0.1</span>
+      <span class="nav__version">v0.2</span>
     </div>
   </header>
 
@@ -30,9 +30,37 @@
         <span class="logo__word">Fonhincas</span>
       </a>
       <p class="basic-hero__welcome">Bienvenidos a la nueva versión de Fonhincas.</p>
-      <button class="btn btn--primary btn--uppercase" type="button">Simular tu préstamo</button>
+      <a class="btn btn--primary btn--uppercase" href="#simular">Simular tu préstamo</a>
+    </section>
+
+    <section class="section" id="simular">
+      <div class="wrap simulator">
+        <div class="section__head" style="text-align:center; margin: 0 auto var(--space-4);">
+          <span class="eyebrow" style="justify-content:center;">Simulador</span>
+          <h2>Simula tu préstamo</h2>
+        </div>
+
+        <div class="simulator__tabs" role="tablist">
+          <button class="tab" type="button" data-modo="plazo" role="tab" aria-selected="true">Por plazo</button>
+          <button class="tab" type="button" data-modo="cuota" role="tab" aria-selected="false">Por cuota</button>
+        </div>
+
+        <form class="simulator__form" id="simuladorForm">
+          <div class="field">
+            <label for="monto">Monto a solicitar</label>
+            <input type="number" id="monto" name="monto" placeholder="Ej: 1.000.000" step="any" min="0" required />
+          </div>
+          <div class="field" id="campoSecundario"></div>
+          <button class="btn btn--primary" id="simuladorSubmit" type="submit">Calcular</button>
+          <p class="simulator__error" id="simuladorError" hidden></p>
+        </form>
+
+        <div class="simulator__result" id="simuladorResult"></div>
+        <div class="table-wrap" id="simuladorTableWrap"></div>
+      </div>
     </section>
   </main>
 
+  <script src="assets/js/simulador.js"></script>
 </body>
 </html>
