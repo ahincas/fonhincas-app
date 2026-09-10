@@ -328,6 +328,43 @@ p { margin: 0; }
 
 .footer small { font-size: 0.8rem; }
 
+/* ---------- Versión (badge en nav) ---------- */
+
+.nav__version {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-text-muted);
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  padding: 0.3em 0.85em;
+}
+
+/* ---------- Landing básica ---------- */
+
+.basic-hero {
+  min-height: calc(100vh - 76px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-3);
+}
+
+.basic-hero .logo__icon { width: 96px; height: 96px; }
+.basic-hero .logo__word { font-size: clamp(2rem, 5vw, 3rem); letter-spacing: 0.05em; }
+
+.basic-hero__welcome {
+  font-size: 1.15rem;
+  color: var(--c-text-muted);
+  max-width: 480px;
+}
+
+.btn--uppercase { text-transform: uppercase; letter-spacing: 0.04em; }
+
 /* ---------- Responsive ---------- */
 
 @media (max-width: 860px) {
