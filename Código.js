@@ -116,6 +116,14 @@ function doGet(e) {
       return jsonResponse_({ ok: true, data: { servicios: getServiciosDisponibles_() } });
     }
 
+    // Consulta pública de préstamos: sin autenticación (a propósito, ver consultarPrestamos_).
+    if (params.accion === 'usuariosPrestamos') {
+      return jsonResponse_({ ok: true, data: { usuarios: listarUsuariosPrestamos_() } });
+    }
+    if (params.accion === 'consultarPrestamos') {
+      return jsonResponse_({ ok: true, data: { prestamos: consultarPrestamos_(params.usuario, params.estado) } });
+    }
+
     var monto = parseFloat(params.monto);
     var tasa = getTasaMensual_();
     var resultado;
@@ -523,6 +531,126 @@ function listarPrestamosPorCerrar_() {
   return listarPrestamosActivos_().filter(function (p) { return p.estado === 'POR_CERRAR'; });
 }
 
+/** Lista los préstamos ya cerrados (hoja PRESTAMOS_HISTORIAL). */
+function listarHistorial_() {
+  var data = getOCrearHojaHistorial_().getDataRange().getValues();
+  var out = [];
+  for (var r = 1; r < data.length; r++) {
+    var fila = data[r];
+    if (!fila[3]) continue;
+    out.push({
+      idPrestamo: Number(fila[2]), nombre: fila[3], monto: numeroDeCelda_(fila[4]), cuotas: numeroDeCelda_(fila[5]),
+      valorCuota: numeroDeCelda_(fila[6]), pagado: numeroDeCelda_(fila[11]), fechaCierre: formatearFechaCelda_(fila[16])
+    });
+  }
+  return out;
+}
+
+/** Todos los nombres que aparecen en SOLICITUD, PRESTAMOS_ACTIVOS o PRESTAMOS_HISTORIAL, sin repetir y ordenados. */
+function listarUsuariosPrestamos_() {
+  var vistos = {};
+  listarSolicitudes_().forEach(function (s) { if (s.nombre) vistos[s.nombre] = true; });
+  listarPrestamosActivos_().forEach(function (p) { if (p.nombre) vistos[p.nombre] = true; });
+  listarHistorial_().forEach(function (h) { if (h.nombre) vistos[h.nombre] = true; });
+  return Object.keys(vistos).sort(function (a, b) { return a.localeCompare(b, 'es'); });
+}
+
+/** Agrupa toda la hoja MOVIMIENTOS por ID de préstamo, en una sola lectura (evita releer la hoja por cada préstamo). */
+function agruparMovimientosPorPrestamo_() {
+  var data = getOCrearHojaMovimientos_().getDataRange().getValues();
+  var mapa = {};
+  for (var m = 1; m < data.length; m++) {
+    var fila = data[m];
+    if (fila[0] === '' || fila[0] === null) continue;
+    var id = Number(fila[3]);
+    if (!mapa[id]) mapa[id] = [];
+    mapa[id].push({ fecha: formatearFechaCelda_(fila[1]), tipo: fila[2], cantidad: Number(fila[5]), comentarios: fila[6] });
+  }
+  return mapa;
+}
+
+/** Suma n meses a una fecha 'yyyy-MM-dd', ajustando el día si el mes destino es más corto. */
+function sumarMeses_(fechaStr, n) {
+  var partes = fechaStr.split('-');
+  var anio = parseInt(partes[0], 10), mes = parseInt(partes[1], 10) - 1, dia = parseInt(partes[2], 10);
+
+  var totalMeses = mes + n;
+  var anioFinal = anio + Math.floor(totalMeses / 12);
+  var mesFinal = ((totalMeses % 12) + 12) % 12;
+  var ultimoDiaMes = new Date(anioFinal, mesFinal + 1, 0).getDate();
+
+  return anioFinal + '-' + pad2_(mesFinal + 1) + '-' + pad2_(Math.min(dia, ultimoDiaMes));
+}
+
+/**
+ * Calcula la fecha de la próxima cuota (avanza un mes por cada cuota ya cubierta con pagos) y si el
+ * préstamo está en mora (esa fecha ya pasó y todavía queda saldo por pagar).
+ */
+function calcularProximaCuota_(prestamo) {
+  var mesesCubiertos = prestamo.cuotas - prestamo.cuotasFaltan;
+  var fechaProximoPago = sumarMeses_(prestamo.fechaPago, mesesCubiertos);
+  var hoy = Utilities.formatDate(new Date(), ZONA_HORARIA, 'yyyy-MM-dd');
+  var enMora = prestamo.estado === 'ACTIVO' && hoy > fechaProximoPago;
+  return { fechaProximoPago: fechaProximoPago, enMora: enMora };
+}
+
+/**
+ * Consulta pública de préstamos (sin autenticación, a propósito: pensada para que cualquier socio
+ * revise el estado de sus préstamos por nombre). Filtra opcionalmente por nombre exacto y/o estado
+ * ('SOLICITUD','ACTIVO','MORA','POR_CERRAR','COMPLETO'); sin filtro de estado trae todo.
+ */
+function consultarPrestamos_(usuarioFiltro, estadoFiltro) {
+  usuarioFiltro = usuarioFiltro ? String(usuarioFiltro).trim() : '';
+  estadoFiltro = estadoFiltro ? String(estadoFiltro).trim().toUpperCase() : '';
+  var incluir = function (cat) { return !estadoFiltro || estadoFiltro === cat; };
+  var resultados = [];
+
+  if (incluir('SOLICITUD')) {
+    listarSolicitudes_().forEach(function (s) {
+      if (usuarioFiltro && s.nombre !== usuarioFiltro) return;
+      resultados.push({
+        estado: 'SOLICITUD', nombre: s.nombre, monto: s.monto, cuotas: s.cuotas,
+        servicio: s.servicio, fecha: s.fecha
+      });
+    });
+  }
+
+  var necesitaMovimientos = incluir('ACTIVO') || incluir('MORA') || incluir('POR_CERRAR') || incluir('COMPLETO');
+  var movimientosPorPrestamo = necesitaMovimientos ? agruparMovimientosPorPrestamo_() : {};
+
+  if (incluir('ACTIVO') || incluir('MORA') || incluir('POR_CERRAR')) {
+    listarPrestamosActivos_().forEach(function (p) {
+      if (usuarioFiltro && p.nombre !== usuarioFiltro) return;
+
+      var estadoReal = p.estado;
+      var calc = { fechaProximoPago: null, enMora: false };
+      if (p.estado === 'ACTIVO') {
+        calc = calcularProximaCuota_(p);
+        estadoReal = calc.enMora ? 'MORA' : 'ACTIVO';
+      }
+      if (!incluir(estadoReal)) return;
+
+      resultados.push({
+        estado: estadoReal, nombre: p.nombre, idPrestamo: p.idPrestamo, monto: p.monto, cuotas: p.cuotas,
+        cuotasFaltan: p.cuotasFaltan, pagado: p.pagado, debe: p.debe, siguienteCuota: p.siguienteCuota,
+        fechaProximoPago: calc.fechaProximoPago, movimientos: movimientosPorPrestamo[p.idPrestamo] || []
+      });
+    });
+  }
+
+  if (incluir('COMPLETO')) {
+    listarHistorial_().forEach(function (h) {
+      if (usuarioFiltro && h.nombre !== usuarioFiltro) return;
+      resultados.push({
+        estado: 'COMPLETO', nombre: h.nombre, idPrestamo: h.idPrestamo, monto: h.monto, cuotas: h.cuotas,
+        pagado: h.pagado, fechaCierre: h.fechaCierre, movimientos: movimientosPorPrestamo[h.idPrestamo] || []
+      });
+    });
+  }
+
+  return resultados;
+}
+
 /** Ubica la fila (1-indexada) de un préstamo por su ID en PRESTAMOS_ACTIVOS. */
 function getFilaPrestamoPorId_(idPrestamo) {
   var data = getOCrearHojaPrestamos_().getDataRange().getValues();
@@ -575,6 +703,7 @@ function cerrarPrestamo_(body) {
 
   if (Number(datos[12]) > UMBRAL_CIERRE) throw new Error('Este préstamo todavía tiene saldo pendiente.');
 
+  datos[15] = 'COMPLETO'; // en PRESTAMOS_ACTIVOS decía POR_CERRAR; en el historial ya es un préstamo completo.
   var hoy = Utilities.formatDate(new Date(), ZONA_HORARIA, 'yyyy-MM-dd');
   getOCrearHojaHistorial_().appendRow(datos.concat([hoy]));
   hojaPrestamos.deleteRow(fila);

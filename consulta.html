@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FONHINCAS — Consultar préstamos</title>
+  <link rel="icon" type="image/svg+xml" href="assets/img/icon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/styles.css?v=0.9" />
+</head>
+<body>
+
+  <header class="nav">
+    <div class="wrap">
+      <a class="logo" href="index.html">
+        <img class="logo__icon" src="assets/img/icon.svg" alt="" />
+        <span class="logo__word">Fonhincas</span>
+      </a>
+      <nav class="nav__links">
+        <a href="index.html">Inicio</a>
+        <a href="simulador.html">Simulador</a>
+        <a href="solicitud.html">Solicitud</a>
+        <a href="admin.html">Administración</a>
+      </nav>
+      <span class="nav__version">v0.9</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="section" style="padding-top: var(--space-5);">
+      <div class="wrap" style="max-width: 760px;">
+        <div class="section__head" style="text-align:center; margin: 0 auto var(--space-4);">
+          <span class="eyebrow" style="justify-content:center;">Consulta pública</span>
+          <h2>Consulta tu préstamo</h2>
+          <p class="hero__lede" style="margin-top: var(--space-2);">Filtra por tu nombre y/o el estado del préstamo para ver el detalle.</p>
+        </div>
+
+        <form class="consulta-form" id="consultaForm">
+          <div class="field">
+            <label for="consultaUsuario">Usuario</label>
+            <select id="consultaUsuario" name="usuario">
+              <option value="">Todos</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="consultaEstado">Estado</label>
+            <select id="consultaEstado" name="estado">
+              <option value="">Todos</option>
+              <option value="SOLICITUD">Solicitud</option>
+              <option value="ACTIVO">Activo</option>
+              <option value="MORA">Mora</option>
+              <option value="POR_CERRAR">Pendiente de finalización</option>
+              <option value="COMPLETO">Completo</option>
+            </select>
+          </div>
+          <button class="btn btn--primary btn--uppercase" type="submit">Consultar</button>
+        </form>
+
+        <p class="simulator__error" id="consultaError" hidden style="margin-top: var(--space-3);"></p>
+        <div id="consultaResultados" style="margin-top: var(--space-4);"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="assets/js/api.js?v=0.9"></script>
+  <script src="assets/js/consulta.js?v=0.9"></script>
+</body>
+</html>

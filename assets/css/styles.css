@@ -702,6 +702,127 @@ table.amort tbody tr:nth-child(even) { background: var(--c-bg); }
 .upload-zone:hover { border-color: var(--c-teal-600); }
 .upload-zone img { max-height: 180px; margin-top: var(--space-2); border-radius: var(--radius-sm); }
 
+/* ---------- Consulta pública de préstamos ---------- */
+
+:root {
+  --c-estado-solicitud-bg: #fff8e1;
+  --c-estado-solicitud-fg: #8a6100;
+  --c-estado-activo-bg: #eafaf1;
+  --c-estado-activo-fg: #1c7a4d;
+  --c-estado-mora-bg: #fdecea;
+  --c-estado-mora-fg: #b3261e;
+  --c-estado-pendiente-bg: #fff8e1;
+  --c-estado-pendiente-fg: #8a6100;
+  --c-estado-completo-bg: #dcf5e6;
+  --c-estado-completo-fg: #146c3b;
+}
+
+.consulta-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: var(--space-3);
+  align-items: end;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-card);
+}
+
+.resultado-card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-left: 5px solid var(--c-border);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.estado-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.3em 0.85em;
+  border-radius: 999px;
+}
+
+.resultado-card[data-estado="SOLICITUD"] { border-left-color: var(--c-estado-solicitud-fg); }
+.resultado-card[data-estado="SOLICITUD"] .estado-pill { background: var(--c-estado-solicitud-bg); color: var(--c-estado-solicitud-fg); }
+
+.resultado-card[data-estado="ACTIVO"] { border-left-color: var(--c-estado-activo-fg); }
+.resultado-card[data-estado="ACTIVO"] .estado-pill { background: var(--c-estado-activo-bg); color: var(--c-estado-activo-fg); }
+
+.resultado-card[data-estado="MORA"] { border-left-color: var(--c-estado-mora-fg); }
+.resultado-card[data-estado="MORA"] .estado-pill { background: var(--c-estado-mora-bg); color: var(--c-estado-mora-fg); }
+
+.resultado-card[data-estado="POR_CERRAR"] { border-left-color: var(--c-estado-pendiente-fg); }
+.resultado-card[data-estado="POR_CERRAR"] .estado-pill { background: var(--c-estado-pendiente-bg); color: var(--c-estado-pendiente-fg); }
+
+.resultado-card[data-estado="COMPLETO"] { border-left-color: var(--c-estado-completo-fg); }
+.resultado-card[data-estado="COMPLETO"] .estado-pill { background: var(--c-estado-completo-bg); color: var(--c-estado-completo-fg); }
+
+.resultado-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
+}
+
+.resultado-head h3 { margin: 0; }
+
+.proxima-cuota-box {
+  background: var(--c-mint-200);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  margin: var(--space-3) 0;
+  text-align: center;
+}
+
+.proxima-cuota-box .valor {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--c-teal-800);
+}
+
+.proxima-cuota-box .label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--c-teal-800);
+  opacity: 0.8;
+  margin-top: 0.2rem;
+}
+
+.resultado-card[data-estado="MORA"] .proxima-cuota-box {
+  background: var(--c-estado-mora-bg);
+}
+.resultado-card[data-estado="MORA"] .proxima-cuota-box .valor,
+.resultado-card[data-estado="MORA"] .proxima-cuota-box .label {
+  color: var(--c-estado-mora-fg);
+}
+
+.mora-alerta {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--c-estado-mora-fg);
+  margin-bottom: var(--space-2);
+}
+
+.movimientos-tabla {
+  margin-top: var(--space-3);
+}
+
+.movimientos-tabla summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--c-teal-600);
+}
+
 /* ---------- Responsive ---------- */
 
 @media (max-width: 860px) {
@@ -710,4 +831,5 @@ table.amort tbody tr:nth-child(even) { background: var(--c-bg); }
   .palette { grid-template-columns: repeat(3, 1fr); }
   .nav__links { display: none; }
   .detalle-grid { grid-template-columns: 1fr; }
+  .consulta-form { grid-template-columns: 1fr; }
 }
