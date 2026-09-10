@@ -9,13 +9,14 @@
   var vistaMenu = document.getElementById('vistaMenu');
   var vistaPago = document.getElementById('vistaPago');
   var vistaLista = document.getElementById('vistaLista');
+  var vistaCierre = document.getElementById('vistaCierre');
   var vistaDetalle = document.getElementById('vistaDetalle');
 
   var moneyFmt = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
   var moneyFmt2 = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 2 });
 
   function mostrarVista(vista) {
-    [vistaLogin, vistaMenu, vistaPago, vistaLista, vistaDetalle].forEach(function (v) { v.hidden = (v !== vista); });
+    [vistaLogin, vistaMenu, vistaPago, vistaLista, vistaCierre, vistaDetalle].forEach(function (v) { v.hidden = (v !== vista); });
   }
 
   function salir() {
@@ -46,6 +47,7 @@
         sesion.contrasena = contrasena;
         loginForm.reset();
         mostrarVista(vistaMenu);
+        actualizarBadgeCierre();
       })
       .catch(function (err) {
         loginError.textContent = err.message;
@@ -63,8 +65,26 @@
 
   document.getElementById('btnIrPago').addEventListener('click', abrirPago);
   document.getElementById('btnIrSolicitudes').addEventListener('click', cargarLista);
-  document.getElementById('btnVolverMenuPago').addEventListener('click', function () { mostrarVista(vistaMenu); });
-  document.getElementById('btnVolverMenuLista').addEventListener('click', function () { mostrarVista(vistaMenu); });
+  document.getElementById('btnIrCierre').addEventListener('click', cargarCierre);
+  document.getElementById('btnVolverMenuPago').addEventListener('click', volverAlMenu);
+  document.getElementById('btnVolverMenuLista').addEventListener('click', volverAlMenu);
+  document.getElementById('btnVolverMenuCierre').addEventListener('click', volverAlMenu);
+
+  function volverAlMenu() {
+    mostrarVista(vistaMenu);
+    actualizarBadgeCierre();
+  }
+
+  function actualizarBadgeCierre() {
+    var badge = document.getElementById('badgeCierre');
+    FonhincasAPI.postJson({ accion: 'listarPrestamosPorCerrar', usuario: sesion.usuario, contrasena: sesion.contrasena })
+      .then(function (json) {
+        var n = json.ok ? json.data.prestamos.length : 0;
+        badge.textContent = n;
+        badge.hidden = n === 0;
+      })
+      .catch(function () { badge.hidden = true; });
+  }
 
   // ---------- Lista ----------
 
@@ -335,7 +355,7 @@
       pagoPrestamoSelect.innerHTML = prestamos.length
         ? '<option value="" disabled selected>Selecciona un préstamo</option>' +
           prestamos.map(function (p) {
-            return '<option value="' + p.idPrestamo + '">N.º ' + p.idPrestamo + ' — ' + escapeHtml(p.nombre) + ' (' + moneyFmt.format(p.monto) + ')</option>';
+            return '<option value="' + p.idPrestamo + '">N.º ' + p.idPrestamo + ' — ' + escapeHtml(p.nombre) + ' (debe ' + moneyFmt.format(p.debe) + ')</option>';
           }).join('')
         : '<option value="" disabled selected>No hay préstamos activos</option>';
     }).catch(function (err) {
@@ -392,7 +412,9 @@
     })
       .then(function (json) {
         if (!json.ok) throw new Error(json.error || 'No fue posible registrar el movimiento.');
-        pagoNota.textContent = 'Movimiento N.º ' + json.data.id + ' registrado para ' + json.data.nombre + '.';
+        var p = json.data.prestamo;
+        pagoNota.textContent = 'Movimiento N.º ' + json.data.id + ' registrado para ' + json.data.nombre + '. Debe ahora: ' +
+          moneyFmt.format(p.debe) + (p.estado === 'POR_CERRAR' ? ' — ¡préstamo listo para cerrar!' : '.');
         pagoNota.hidden = false;
         pagoForm.reset();
         pagoCantidadLabel.textContent = 'Cantidad';
@@ -406,6 +428,59 @@
         pagoSubmit.textContent = 'Registrar movimiento';
       });
   });
+
+  // ---------- Préstamos por cerrar ----------
+
+  var listaCierreEl = document.getElementById('listaCierre');
+
+  function cargarCierre() {
+    listaCierreEl.innerHTML = '<p class="list-empty">Cargando…</p>';
+    mostrarVista(vistaCierre);
+
+    FonhincasAPI.postJson({ accion: 'listarPrestamosPorCerrar', usuario: sesion.usuario, contrasena: sesion.contrasena })
+      .then(function (json) {
+        if (!json.ok) throw new Error(json.error || 'No fue posible cargar los préstamos por cerrar.');
+        renderCierre(json.data.prestamos);
+      })
+      .catch(function (err) {
+        listaCierreEl.innerHTML = '<p class="list-empty">' + err.message + '</p>';
+      });
+  }
+
+  function renderCierre(prestamos) {
+    if (!prestamos.length) {
+      listaCierreEl.innerHTML = '<p class="list-empty">No hay préstamos listos para cerrar.</p>';
+      return;
+    }
+
+    listaCierreEl.innerHTML = prestamos.map(function (p) {
+      return '<div class="card" style="margin-bottom: var(--space-2);">' +
+        '<div class="list-item__head"><h3>N.º ' + p.idPrestamo + ' — ' + escapeHtml(p.nombre) + '</h3><span class="list-item__monto">' + moneyFmt.format(p.pagado) + ' pagado</span></div>' +
+        '<p>Monto original: ' + moneyFmt.format(p.monto) + ' · Saldo pendiente: ' + moneyFmt.format(p.debe) + '</p>' +
+        '<button class="btn btn--primary" type="button" data-id="' + p.idPrestamo + '" style="margin-top: var(--space-2);">Confirmar cierre</button>' +
+        '</div>';
+    }).join('');
+
+    listaCierreEl.querySelectorAll('button[data-id]').forEach(function (btn) {
+      btn.addEventListener('click', function () { confirmarCierre(parseInt(btn.dataset.id, 10), btn); });
+    });
+  }
+
+  function confirmarCierre(idPrestamo, btn) {
+    btn.disabled = true;
+    btn.textContent = 'Cerrando…';
+
+    FonhincasAPI.postJson({ accion: 'cerrarPrestamo', usuario: sesion.usuario, contrasena: sesion.contrasena, idPrestamo: idPrestamo })
+      .then(function (json) {
+        if (!json.ok) throw new Error(json.error || 'No fue posible cerrar el préstamo.');
+        cargarCierre();
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        btn.textContent = 'Confirmar cierre';
+        listaCierreEl.insertAdjacentHTML('afterbegin', '<p class="simulator__error">' + escapeHtml(err.message) + '</p>');
+      });
+  }
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, function (c) {

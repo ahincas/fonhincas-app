@@ -8,10 +8,16 @@ var MAX_PLAZO_MESES = 36;
 var CORREO_NOTIFICACION = 'ahincapiecpersonal@gmail.com';
 var HOJA_SOLICITUDES = 'SOLICITUD';
 var HOJA_PRESTAMOS = 'PRESTAMOS_ACTIVOS';
+var HOJA_HISTORIAL = 'PRESTAMOS_HISTORIAL';
 var HOJA_MOVIMIENTOS = 'MOVIMIENTOS';
 var ZONA_HORARIA = 'America/Bogota';
 var HORA_RECORDATORIO = '20:30:00-05:00';
 var MESES_ES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
+var UMBRAL_CIERRE = 1; // "debe" en pesos por debajo del cual el préstamo se considera listo para cerrar
+var PRESTAMOS_HEADERS = [
+  'Fecha de revisión', 'Administrador', 'ID préstamo', 'Nombre', 'Monto', 'Cuotas', 'Valor cuota', 'Tasa interés',
+  'Fecha de pago', 'Observaciones', 'PDF', 'Pagado', 'Debe', 'Cuotas faltan', 'Siguiente cuota', 'Estado'
+];
 
 /** Ejecuta esta función manualmente una vez desde el editor para autorizar los permisos (hoja de cálculo, correo, calendario y Drive/Docs). */
 function autorizarPermisos() {
@@ -76,6 +82,11 @@ function doPost(e) {
         return jsonResponse_({ ok: true, data: { prestamos: listarPrestamosActivos_() } });
       case 'registrarMovimiento':
         return jsonResponse_({ ok: true, data: registrarMovimiento_(body) });
+      case 'listarPrestamosPorCerrar':
+        validarAdmin_(body.usuario, body.contrasena);
+        return jsonResponse_({ ok: true, data: { prestamos: listarPrestamosPorCerrar_() } });
+      case 'cerrarPrestamo':
+        return jsonResponse_({ ok: true, data: cerrarPrestamo_(body) });
       case 'limpiarDatosPrueba':
         // SOLO para la fase de desarrollo: borra filas de datos (no encabezados) de
         // SOLICITUD, PRESTAMOS_ACTIVOS y MOVIMIENTOS, para que los ID consecutivos
@@ -237,6 +248,16 @@ function formatearFechaCelda_(valor) {
   return String(valor);
 }
 
+/** Lee una celda que debe ser numérica; si Sheets la devuelve como fecha (formato de columna corrupto) falla con un mensaje claro en vez de calcular disparates. */
+function numeroDeCelda_(valor) {
+  if (Object.prototype.toString.call(valor) === '[object Date]') {
+    throw new Error('Una celda numérica quedó con formato de fecha en la hoja. Revisa el formato de la columna y corrígelo (número, no fecha).');
+  }
+  var n = Number(valor);
+  if (isNaN(n)) throw new Error('Se encontró un valor no numérico donde se esperaba un número.');
+  return n;
+}
+
 /** Aprueba una solicitud: calcula todo, genera el PDF, lo guarda en Drive, mueve el registro a PRESTAMOS_ACTIVOS y borra la solicitud. */
 function guardarPrestamo_(body) {
   validarAdmin_(body.usuario, body.contrasena);
@@ -264,12 +285,25 @@ function guardarPrestamo_(body) {
   var nombreArchivo = 'Prestamo_' + idPrestamo + '_' + detalle.nombre.replace(/[^a-zA-Z0-9]+/g, '_') + '.pdf';
   var archivoPdf = carpeta.createFile(pdf).setName(nombreArchivo);
 
+  var montoTotalAPagar = redondear_(detalle.tabla.reduce(function (acc, r) { return acc + r.cuota; }, 0));
+
   hojaPrestamos.appendRow([
     detalle.fechaRevision, administrador, idPrestamo, detalle.nombre, detalle.monto, detalle.cuotas,
-    detalle.cuota, detalle.tasa, detalle.fechaPago, observaciones, archivoPdf.getUrl()
+    detalle.cuota, detalle.tasa, detalle.fechaPago, observaciones, archivoPdf.getUrl(),
+    0, montoTotalAPagar, detalle.cuotas, detalle.tabla[0].cuota, 'ACTIVO'
   ]);
 
   getOCrearHojaSolicitudes_().deleteRow(fila);
+
+  try {
+    var tipoDesembolso = getTiposMovimiento_().filter(function (t) { return t.tipo.toUpperCase() === 'DESEMBOLSO'; })[0];
+    if (tipoDesembolso) {
+      var cantidadDesembolso = tipoDesembolso.signo === '-' ? -detalle.monto : detalle.monto;
+      insertarMovimiento_(tipoDesembolso.tipo, idPrestamo, detalle.nombre, cantidadDesembolso, 'Desembolso automático al aprobar el préstamo.');
+    }
+  } catch (err) {
+    // El préstamo ya quedó guardado; un fallo al registrar el desembolso automático no debe invalidar la aprobación.
+  }
 
   return { idPrestamo: idPrestamo, pdfUrl: archivoPdf.getUrl() };
 }
@@ -339,7 +373,7 @@ function getOCrearCarpetaHija_(padre, nombre) {
 
 /** Solo desarrollo: vacía las filas de datos de SOLICITUD, PRESTAMOS_ACTIVOS y MOVIMIENTOS (conserva encabezados). */
 function limpiarDatosPrueba_() {
-  var hojas = [getOCrearHojaSolicitudes_(), getOCrearHojaPrestamos_(), getOCrearHojaMovimientos_()];
+  var hojas = [getOCrearHojaSolicitudes_(), getOCrearHojaPrestamos_(), getOCrearHojaMovimientos_(), getOCrearHojaHistorial_()];
   var limpiadas = [];
   hojas.forEach(function (sheet) {
     var filas = sheet.getLastRow() - 1;
@@ -349,13 +383,41 @@ function limpiarDatosPrueba_() {
   return { limpiadas: limpiadas };
 }
 
-/** Obtiene la hoja PRESTAMOS_ACTIVOS, creándola con encabezados si todavía no existe. */
+/** Obtiene la hoja PRESTAMOS_ACTIVOS, creándola (o migrando sus encabezados, si está vacía) según PRESTAMOS_HEADERS. */
 function getOCrearHojaPrestamos_() {
   var libro = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = libro.getSheetByName(HOJA_PRESTAMOS);
   if (!sheet) {
     sheet = libro.insertSheet(HOJA_PRESTAMOS);
-    sheet.appendRow(['Fecha de revisión', 'Administrador', 'ID préstamo', 'Nombre', 'Monto', 'Cuotas', 'Valor cuota', 'Tasa interés', 'Fecha de pago', 'Observaciones', 'PDF']);
+    sheet.appendRow(PRESTAMOS_HEADERS);
+    sheet.setFrozenRows(1);
+    forzarFormatoNumericoPrestamos_(sheet);
+  } else if (sheet.getLastRow() <= 1) {
+    sheet.getRange(1, 1, 1, PRESTAMOS_HEADERS.length).setValues([PRESTAMOS_HEADERS]);
+    forzarFormatoNumericoPrestamos_(sheet);
+  }
+  return sheet;
+}
+
+/**
+ * Fuerza formato numérico plano en las columnas de PRESTAMOS_ACTIVOS que deben ser números
+ * (Monto, Cuotas, Valor cuota, Tasa interés, Pagado, Debe, Cuotas faltan, Siguiente cuota).
+ * Evita que Sheets las reinterprete como fecha (p. ej. una tasa de 0.01 mostrada como 1899-12-30),
+ * algo que ya pasó durante el desarrollo tras varios cambios de columnas.
+ */
+function forzarFormatoNumericoPrestamos_(sheet) {
+  ['E:E', 'F:F', 'G:G', 'H:H', 'L:L', 'M:M', 'N:N', 'O:O'].forEach(function (col) {
+    sheet.getRange(col).setNumberFormat('0.00');
+  });
+}
+
+/** Obtiene la hoja PRESTAMOS_HISTORIAL, creándola con encabezados si todavía no existe. */
+function getOCrearHojaHistorial_() {
+  var libro = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = libro.getSheetByName(HOJA_HISTORIAL);
+  if (!sheet) {
+    sheet = libro.insertSheet(HOJA_HISTORIAL);
+    sheet.appendRow(PRESTAMOS_HEADERS.concat(['Fecha de cierre']));
     sheet.setFrozenRows(1);
   }
   return sheet;
@@ -397,7 +459,7 @@ function getTiposMovimiento_() {
   throw new Error('No se encontraron las columnas TIPO/MOVIMIENTO en CONFIGURACION.');
 }
 
-/** Lista los préstamos activos (hoja PRESTAMOS_ACTIVOS) para poblar el selector del formulario de pagos. */
+/** Lista los préstamos activos (hoja PRESTAMOS_ACTIVOS), con su estado de pago. */
 function listarPrestamosActivos_() {
   var data = getOCrearHojaPrestamos_().getDataRange().getValues();
   var out = [];
@@ -405,11 +467,74 @@ function listarPrestamosActivos_() {
     var fila = data[r];
     if (fila[2] === '' || fila[2] === null) continue;
     out.push({
-      idPrestamo: Number(fila[2]), nombre: fila[3], monto: fila[4], cuotas: fila[5],
-      valorCuota: fila[6], fechaPago: formatearFechaCelda_(fila[8])
+      fila: r + 1, idPrestamo: Number(fila[2]), nombre: fila[3], monto: numeroDeCelda_(fila[4]), cuotas: numeroDeCelda_(fila[5]),
+      valorCuota: numeroDeCelda_(fila[6]), tasa: numeroDeCelda_(fila[7]), fechaPago: formatearFechaCelda_(fila[8]),
+      pagado: numeroDeCelda_(fila[11]), debe: numeroDeCelda_(fila[12]), cuotasFaltan: numeroDeCelda_(fila[13]),
+      siguienteCuota: numeroDeCelda_(fila[14]), estado: fila[15]
     });
   }
   return out;
+}
+
+/** Préstamos activos cuyo saldo (Debe) ya está en o por debajo del umbral de cierre. */
+function listarPrestamosPorCerrar_() {
+  return listarPrestamosActivos_().filter(function (p) { return p.estado === 'POR_CERRAR'; });
+}
+
+/** Ubica la fila (1-indexada) de un préstamo por su ID en PRESTAMOS_ACTIVOS. */
+function getFilaPrestamoPorId_(idPrestamo) {
+  var data = getOCrearHojaPrestamos_().getDataRange().getValues();
+  for (var r = 1; r < data.length; r++) {
+    if (Number(data[r][2]) === idPrestamo) return r + 1;
+  }
+  throw new Error('No existe un préstamo activo con ese ID.');
+}
+
+/** Recalcula Pagado/Debe/Cuotas faltan/Siguiente cuota/Estado de un préstamo a partir de sus movimientos positivos. */
+function recalcularPrestamo_(idPrestamo) {
+  var hojaPrestamos = getOCrearHojaPrestamos_();
+  var fila = getFilaPrestamoPorId_(idPrestamo);
+  var datos = hojaPrestamos.getRange(fila, 1, 1, PRESTAMOS_HEADERS.length).getValues()[0];
+
+  var monto = numeroDeCelda_(datos[4]), cuotas = numeroDeCelda_(datos[5]);
+  var valorCuota = numeroDeCelda_(datos[6]), tasa = numeroDeCelda_(datos[7]);
+  var montoTotalAPagar = redondear_(generarTabla_(monto, tasa, cuotas, valorCuota).reduce(function (acc, r) { return acc + r.cuota; }, 0));
+
+  var movimientos = getOCrearHojaMovimientos_().getDataRange().getValues();
+  var pagado = 0;
+  for (var m = 1; m < movimientos.length; m++) {
+    if (Number(movimientos[m][3]) === idPrestamo && Number(movimientos[m][5]) > 0) {
+      pagado += Number(movimientos[m][5]);
+    }
+  }
+  pagado = redondear_(pagado);
+
+  var debe = Math.max(0, redondear_(montoTotalAPagar - pagado));
+  var cuotasFaltan = valorCuota > 0 ? Math.min(cuotas, Math.ceil(debe / valorCuota)) : 0;
+  var siguienteCuota = debe <= 0 ? 0 : redondear_(Math.min(valorCuota, debe));
+  var estado = debe <= UMBRAL_CIERRE ? 'POR_CERRAR' : 'ACTIVO';
+
+  hojaPrestamos.getRange(fila, 12, 1, 5).setValues([[pagado, debe, cuotasFaltan, siguienteCuota, estado]]);
+
+  return { pagado: pagado, debe: debe, cuotasFaltan: cuotasFaltan, siguienteCuota: siguienteCuota, estado: estado };
+}
+
+/** Cierra un préstamo: lo mueve completo (con fecha de cierre) a PRESTAMOS_HISTORIAL y lo borra de PRESTAMOS_ACTIVOS. */
+function cerrarPrestamo_(body) {
+  validarAdmin_(body.usuario, body.contrasena);
+
+  var idPrestamo = parseInt(body.idPrestamo, 10);
+  var hojaPrestamos = getOCrearHojaPrestamos_();
+  var fila = getFilaPrestamoPorId_(idPrestamo);
+  var datos = hojaPrestamos.getRange(fila, 1, 1, PRESTAMOS_HEADERS.length).getValues()[0];
+
+  if (Number(datos[12]) > UMBRAL_CIERRE) throw new Error('Este préstamo todavía tiene saldo pendiente.');
+
+  var hoy = Utilities.formatDate(new Date(), ZONA_HORARIA, 'yyyy-MM-dd');
+  getOCrearHojaHistorial_().appendRow(datos.concat([hoy]));
+  hojaPrestamos.deleteRow(fila);
+
+  return { idPrestamo: idPrestamo, fechaCierre: hoy };
 }
 
 /** Valida y registra un movimiento (pago, préstamo, etc.) contra un préstamo activo. */
@@ -443,13 +568,21 @@ function registrarMovimiento_(body) {
   }
   if (!prestamo) throw new Error('No existe un préstamo activo con ese ID.');
 
+  var resultado = insertarMovimiento_(tipo, idPrestamo, prestamo.nombre, cantidad, comentarios);
+  var estadoPrestamo = recalcularPrestamo_(idPrestamo);
+
+  return { id: resultado.id, fecha: resultado.fecha, nombre: prestamo.nombre, prestamo: estadoPrestamo };
+}
+
+/** Agrega una fila a MOVIMIENTOS con ID consecutivo (desde 0) y fecha automáticos. */
+function insertarMovimiento_(tipo, idPrestamo, nombre, cantidad, comentarios) {
   var sheet = getOCrearHojaMovimientos_();
   var nuevoId = sheet.getLastRow() - 1; // encabezado en fila 1; los ids empiezan en 0
   var hoy = Utilities.formatDate(new Date(), ZONA_HORARIA, 'yyyy-MM-dd');
 
-  sheet.appendRow([nuevoId, hoy, tipo, idPrestamo, prestamo.nombre, cantidad, comentarios]);
+  sheet.appendRow([nuevoId, hoy, tipo, idPrestamo, nombre, cantidad, comentarios]);
 
-  return { id: nuevoId, fecha: hoy, nombre: prestamo.nombre };
+  return { id: nuevoId, fecha: hoy };
 }
 
 /** Obtiene la hoja SOLICITUD, creándola con encabezados si todavía no existe. */

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/styles.css?v=0.7" />
+  <link rel="stylesheet" href="assets/css/styles.css?v=0.8" />
 </head>
 <body>
 
@@ -23,7 +23,7 @@
         <a href="simulador.html">Simulador</a>
         <a href="solicitud.html">Solicitud</a>
       </nav>
-      <span class="nav__version">v0.7</span>
+      <span class="nav__version">v0.8</span>
     </div>
   </header>
 
@@ -64,9 +64,13 @@
             <h3>Registrar pago</h3>
             <p>Registra un movimiento (pago, desembolso, aporte, etc.) contra un préstamo activo.</p>
           </div>
-          <div class="card list-item" id="btnIrSolicitudes">
+          <div class="card list-item" id="btnIrSolicitudes" style="margin-bottom: var(--space-2);">
             <h3>Solicitudes pendientes</h3>
             <p>Revisa y aprueba las solicitudes de préstamo recibidas.</p>
+          </div>
+          <div class="card list-item" id="btnIrCierre">
+            <h3>Préstamos por cerrar <span class="nav__version" id="badgeCierre" hidden></span></h3>
+            <p>Préstamos ya pagados en su totalidad, listos para archivar.</p>
           </div>
         </div>
 
@@ -105,6 +109,18 @@
             <p class="simulator__error" id="pagoError" hidden></p>
             <p class="form-note" id="pagoNota" hidden></p>
           </form>
+        </div>
+
+        <!-- Préstamos por cerrar -->
+        <div id="vistaCierre" hidden>
+          <div class="admin-topbar">
+            <div class="section__head" style="margin:0;">
+              <span class="eyebrow">Administración</span>
+              <h2>Préstamos por cerrar</h2>
+            </div>
+            <button class="btn btn--ghost" id="btnVolverMenuCierre" type="button">Volver al menú</button>
+          </div>
+          <div id="listaCierre"></div>
         </div>
 
         <!-- Lista de solicitudes -->
@@ -177,7 +193,7 @@
     </section>
   </main>
 
-  <script src="assets/js/api.js?v=0.7"></script>
-  <script src="assets/js/admin.js?v=0.7"></script>
+  <script src="assets/js/api.js?v=0.8"></script>
+  <script src="assets/js/admin.js?v=0.8"></script>
 </body>
 </html>
