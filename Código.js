@@ -7,14 +7,20 @@ var SPREADSHEET_ID = '19eegTaeEZt9USJ8UVBuCHpp0uGqXKWvFGvK1RM_c5mU';
 var MAX_PLAZO_MESES = 36;
 var CORREO_NOTIFICACION = 'ahincapiecpersonal@gmail.com';
 var HOJA_SOLICITUDES = 'SOLICITUD';
+var HOJA_PRESTAMOS = 'PRESTAMOS_ACTIVOS';
 var ZONA_HORARIA = 'America/Bogota';
 var HORA_RECORDATORIO = '20:30:00-05:00';
+var MESES_ES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
 
-/** Ejecuta esta función manualmente una vez desde el editor para autorizar los permisos (hoja de cálculo, correo y calendario). */
+/** Ejecuta esta función manualmente una vez desde el editor para autorizar los permisos (hoja de cálculo, correo, calendario y Drive/Docs). */
 function autorizarPermisos() {
   getServiciosDisponibles_();
   MailApp.getRemainingDailyQuota();
   CalendarApp.getDefaultCalendar().getName();
+  DriveApp.getRootFolder().getName();
+
+  var doc = DocumentApp.create('tmp_autorizacion');
+  DriveApp.getFileById(doc.getId()).setTrashed(true);
 }
 
 function doGet(e) {
@@ -47,11 +53,23 @@ function doPost(e) {
   try {
     var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
 
-    if (body.accion === 'guardarSolicitud') {
-      return jsonResponse_({ ok: true, data: guardarSolicitud_(body) });
+    switch (body.accion) {
+      case 'guardarSolicitud':
+        return jsonResponse_({ ok: true, data: guardarSolicitud_(body) });
+      case 'login':
+        validarAdmin_(body.usuario, body.contrasena);
+        return jsonResponse_({ ok: true, data: { usuario: String(body.usuario).trim() } });
+      case 'listarSolicitudes':
+        validarAdmin_(body.usuario, body.contrasena);
+        return jsonResponse_({ ok: true, data: { solicitudes: listarSolicitudes_() } });
+      case 'detalleSolicitud':
+        validarAdmin_(body.usuario, body.contrasena);
+        return jsonResponse_({ ok: true, data: detalleSolicitud_(parseInt(body.fila, 10)) });
+      case 'guardarPrestamo':
+        return jsonResponse_({ ok: true, data: guardarPrestamo_(body) });
+      default:
+        throw new Error('Acción inválida.');
     }
-
-    throw new Error('Acción inválida.');
   } catch (err) {
     return jsonResponse_({ ok: false, error: err.message });
   }
@@ -99,6 +117,221 @@ function guardarSolicitud_(body) {
   }
 
   return { fila: sheet.getLastRow(), estado: estado };
+}
+
+/** Valida credenciales contra la lista Usuario/Contraseña en CONFIGURACION. Lanza error si no coinciden. */
+function validarAdmin_(usuario, contrasena) {
+  usuario = String(usuario || '').trim();
+  contrasena = String(contrasena || '');
+  if (!usuario || !contrasena) throw new Error('Usuario y contraseña son obligatorios.');
+
+  var administradores = getAdministradores_();
+  for (var i = 0; i < administradores.length; i++) {
+    if (administradores[i].usuario === usuario && administradores[i].contrasena === contrasena) return true;
+  }
+  throw new Error('Usuario o contraseña incorrectos.');
+}
+
+/** Lee los pares Usuario/Contraseña de CONFIGURACION: columna "Usuario" y, en la columna inmediatamente a la derecha, "Contraseña". */
+function getAdministradores_() {
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('CONFIGURACION');
+  if (!sheet) throw new Error('No se encontró la hoja CONFIGURACION.');
+
+  var data = sheet.getDataRange().getValues();
+  for (var r = 0; r < data.length; r++) {
+    for (var c = 0; c < data[r].length; c++) {
+      if (String(data[r][c]).trim().toUpperCase() === 'USUARIO' && String(data[r][c + 1]).trim().toUpperCase() === 'CONTRASEÑA') {
+        var administradores = [];
+        for (var i = r + 1; i < data.length; i++) {
+          var usuario = String(data[i][c]).trim();
+          if (!usuario) break;
+          administradores.push({ usuario: usuario, contrasena: String(data[i][c + 1]) });
+        }
+        return administradores;
+      }
+    }
+  }
+  throw new Error('No se encontraron las columnas Usuario/Contraseña en CONFIGURACION.');
+}
+
+/** Lista las solicitudes pendientes (hoja SOLICITUD), con el número de fila como identificador. */
+function listarSolicitudes_() {
+  var data = getOCrearHojaSolicitudes_().getDataRange().getValues();
+  var out = [];
+  for (var r = 1; r < data.length; r++) {
+    var fila = data[r];
+    if (!fila[1]) continue;
+    out.push({
+      fila: r + 1,
+      nombre: fila[1], fecha: formatearFechaCelda_(fila[2]), servicio: fila[3], monto: fila[4], cuotas: fila[5],
+      linkPago: fila[6], banco: fila[7], cuentaLlave: fila[8], estado: fila[9]
+    });
+  }
+  return out;
+}
+
+/** Calcula, para una solicitud puntual, la cuota, la tabla de amortización y la fecha de pago sugerida. */
+function detalleSolicitud_(fila) {
+  var sheet = getOCrearHojaSolicitudes_();
+  if (!(fila >= 2)) throw new Error('Solicitud inválida.');
+  var datos = sheet.getRange(fila, 1, 1, 10).getValues()[0];
+  if (!datos[1]) throw new Error('La solicitud ya no existe (puede que ya haya sido procesada).');
+
+  var nombre = datos[1], fechaSolicitud = formatearFechaCelda_(datos[2]), servicio = datos[3];
+  var monto = Number(datos[4]), cuotas = Number(datos[5]);
+  var tasa = getTasaMensual_();
+  var sim = simularPorPlazo_(monto, tasa, cuotas);
+  var hoy = Utilities.formatDate(new Date(), ZONA_HORARIA, 'yyyy-MM-dd');
+
+  return {
+    fila: fila, nombre: nombre, fechaSolicitud: fechaSolicitud, servicio: servicio,
+    monto: monto, cuotas: cuotas, tasa: tasa, cuota: sim.cuota, tabla: sim.tabla,
+    fechaRevision: hoy, fechaPago: calcularFechaPago_(hoy)
+  };
+}
+
+/**
+ * La fecha de pago es la quincena más cercana del mes SIGUIENTE a la fecha base:
+ * si la fecha base es del 1 al 14, paga el 15 del mes siguiente;
+ * si es del 15 en adelante, paga el último día del mes siguiente.
+ */
+function calcularFechaPago_(fechaBaseStr) {
+  var partes = fechaBaseStr.split('-');
+  var anio = parseInt(partes[0], 10);
+  var mes = parseInt(partes[1], 10) - 1;
+  var dia = parseInt(partes[2], 10);
+
+  var mesSiguiente = mes + 1;
+  var anioSiguiente = anio;
+  if (mesSiguiente > 11) { mesSiguiente = 0; anioSiguiente++; }
+
+  var diaPago = dia <= 14 ? 15 : new Date(anioSiguiente, mesSiguiente + 1, 0).getDate();
+
+  return anioSiguiente + '-' + pad2_(mesSiguiente + 1) + '-' + pad2_(diaPago);
+}
+
+function pad2_(n) {
+  return (n < 10 ? '0' : '') + n;
+}
+
+/** Sheets a veces autoconvierte texto tipo fecha a un valor Date real; esto lo vuelve a 'yyyy-MM-dd' de forma consistente. */
+function formatearFechaCelda_(valor) {
+  if (Object.prototype.toString.call(valor) === '[object Date]') {
+    return Utilities.formatDate(valor, ZONA_HORARIA, 'yyyy-MM-dd');
+  }
+  return String(valor);
+}
+
+/** Aprueba una solicitud: calcula todo, genera el PDF, lo guarda en Drive, mueve el registro a PRESTAMOS_ACTIVOS y borra la solicitud. */
+function guardarPrestamo_(body) {
+  validarAdmin_(body.usuario, body.contrasena);
+
+  var fila = parseInt(body.fila, 10);
+  var detalle = detalleSolicitud_(fila);
+  var observaciones = body.observaciones ? String(body.observaciones).trim() : '';
+
+  if (!body.firma) throw new Error('La firma es obligatoria.');
+  var firmaBlob = blobFromDataUrl_(body.firma, 'firma.png');
+  var fotoBlob = body.fotoDesembolso ? blobFromDataUrl_(body.fotoDesembolso, 'desembolso.png') : null;
+
+  var administrador = String(body.usuario).trim();
+  var hojaPrestamos = getOCrearHojaPrestamos_();
+  var idPrestamo = hojaPrestamos.getLastRow(); // fila 1 = encabezado, así que el conteo de filas existentes ya es el siguiente id
+
+  var pdf = generarPdfPrestamo_({
+    idPrestamo: idPrestamo, administrador: administrador, fechaRevision: detalle.fechaRevision,
+    nombre: detalle.nombre, servicio: detalle.servicio, monto: detalle.monto, cuotas: detalle.cuotas,
+    cuota: detalle.cuota, tasa: detalle.tasa, fechaPago: detalle.fechaPago, observaciones: observaciones,
+    tabla: detalle.tabla, firmaBlob: firmaBlob, fotoBlob: fotoBlob
+  });
+
+  var carpeta = getOCrearCarpetaRespaldosMes_();
+  var nombreArchivo = 'Prestamo_' + idPrestamo + '_' + detalle.nombre.replace(/[^a-zA-Z0-9]+/g, '_') + '.pdf';
+  var archivoPdf = carpeta.createFile(pdf).setName(nombreArchivo);
+
+  hojaPrestamos.appendRow([
+    detalle.fechaRevision, administrador, idPrestamo, detalle.monto, detalle.cuotas,
+    detalle.cuota, detalle.tasa, detalle.fechaPago, observaciones, archivoPdf.getUrl()
+  ]);
+
+  getOCrearHojaSolicitudes_().deleteRow(fila);
+
+  return { idPrestamo: idPrestamo, pdfUrl: archivoPdf.getUrl() };
+}
+
+/** Construye el PDF del préstamo (datos + tabla de amortización + firma + foto del desembolso) y lo devuelve como blob. */
+function generarPdfPrestamo_(d) {
+  var doc = DocumentApp.create('tmp_prestamo_' + d.idPrestamo);
+  var body = doc.getBody();
+
+  body.appendParagraph('FONHINCAS — Préstamo N.º ' + d.idPrestamo).setHeading(DocumentApp.ParagraphHeading.TITLE);
+  body.appendParagraph('Fecha de revisión: ' + d.fechaRevision);
+  body.appendParagraph('Administrador: ' + d.administrador);
+  body.appendParagraph('Nombre del solicitante: ' + d.nombre);
+  body.appendParagraph('Servicio: ' + d.servicio);
+  body.appendParagraph('Monto: ' + d.monto);
+  body.appendParagraph('Número de cuotas: ' + d.cuotas);
+  body.appendParagraph('Valor de la cuota: ' + d.cuota);
+  body.appendParagraph('Tasa de interés mensual: ' + (d.tasa * 100).toFixed(2) + '%');
+  body.appendParagraph('Fecha de pago: ' + d.fechaPago);
+  body.appendParagraph('Observaciones: ' + (d.observaciones || '—'));
+
+  body.appendParagraph('Anexo 1 — Tabla de amortización').setHeading(DocumentApp.ParagraphHeading.HEADING2);
+  var filas = [['Mes', 'Saldo inicial', 'Cuota', 'Interés', 'Abono capital', 'Saldo final']];
+  d.tabla.forEach(function (r) {
+    filas.push([String(r.mes), String(r.saldoInicial), String(r.cuota), String(r.interes), String(r.abonoCapital), String(r.saldoFinal)]);
+  });
+  body.appendTable(filas);
+
+  body.appendParagraph('Firma').setHeading(DocumentApp.ParagraphHeading.HEADING2);
+  body.appendImage(d.firmaBlob).setWidth(220);
+
+  if (d.fotoBlob) {
+    body.appendParagraph('Anexo 2 — Foto del desembolso').setHeading(DocumentApp.ParagraphHeading.HEADING2);
+    body.appendImage(d.fotoBlob).setWidth(350);
+  }
+
+  doc.saveAndClose();
+  var archivo = DriveApp.getFileById(doc.getId());
+  var pdf = archivo.getAs('application/pdf');
+  archivo.setTrashed(true);
+  return pdf;
+}
+
+/** Decodifica un data URL ("data:image/png;base64,...") a un Blob de Apps Script. */
+function blobFromDataUrl_(dataUrl, nombreArchivo) {
+  var match = /^data:([^;]+);base64,(.*)$/.exec(dataUrl);
+  if (!match) throw new Error('Formato de imagen inválido.');
+  return Utilities.newBlob(Utilities.base64Decode(match[2]), match[1], nombreArchivo);
+}
+
+/** Carpeta de Drive respaldos/AAAA_MES (hoy), creándola si no existe. */
+function getOCrearCarpetaRespaldosMes_() {
+  var ahora = new Date();
+  var anio = Utilities.formatDate(ahora, ZONA_HORARIA, 'yyyy');
+  var mesIdx = parseInt(Utilities.formatDate(ahora, ZONA_HORARIA, 'M'), 10) - 1;
+  var nombreCarpeta = anio + '_' + MESES_ES[mesIdx];
+
+  var raiz = getOCrearCarpetaHija_(DriveApp.getRootFolder(), 'respaldos');
+  return getOCrearCarpetaHija_(raiz, nombreCarpeta);
+}
+
+function getOCrearCarpetaHija_(padre, nombre) {
+  var it = padre.getFoldersByName(nombre);
+  if (it.hasNext()) return it.next();
+  return padre.createFolder(nombre);
+}
+
+/** Obtiene la hoja PRESTAMOS_ACTIVOS, creándola con encabezados si todavía no existe. */
+function getOCrearHojaPrestamos_() {
+  var libro = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = libro.getSheetByName(HOJA_PRESTAMOS);
+  if (!sheet) {
+    sheet = libro.insertSheet(HOJA_PRESTAMOS);
+    sheet.appendRow(['Fecha de revisión', 'Administrador', 'ID préstamo', 'Monto', 'Cuotas', 'Valor cuota', 'Tasa interés', 'Fecha de pago', 'Observaciones', 'PDF']);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
 }
 
 /** Obtiene la hoja SOLICITUD, creándola con encabezados si todavía no existe. */

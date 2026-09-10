@@ -614,6 +614,94 @@ table.amort tbody tr:nth-child(even) { background: var(--c-bg); }
   text-align: center;
 }
 
+/* ---------- Administración ---------- */
+
+.admin-wrap {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.admin-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
+.admin-topbar .btn { padding: 0.55em 1.2em; font-size: 0.82rem; }
+
+.list-item {
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.list-item:hover { border-color: var(--c-teal-600); transform: translateY(-1px); }
+
+.list-item__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.list-item__head h3 { margin: 0; }
+
+.list-item__monto {
+  font-weight: 800;
+  color: var(--c-teal-800);
+}
+
+.list-empty {
+  text-align: center;
+  color: var(--c-text-muted);
+  padding: var(--space-5) 0;
+}
+
+.detalle-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3) var(--space-3);
+}
+
+.kv .k {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--c-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.kv .v {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--c-text);
+  margin-top: 0.2rem;
+}
+
+.signature-pad {
+  display: block;
+  width: 100%;
+  height: 160px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  background: var(--c-bg);
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.upload-zone {
+  border: 1px dashed var(--c-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  text-align: center;
+  color: var(--c-text-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.upload-zone:hover { border-color: var(--c-teal-600); }
+.upload-zone img { max-height: 180px; margin-top: var(--space-2); border-radius: var(--radius-sm); }
+
 /* ---------- Responsive ---------- */
 
 @media (max-width: 860px) {
@@ -621,4 +709,5 @@ table.amort tbody tr:nth-child(even) { background: var(--c-bg); }
   .stats { grid-template-columns: repeat(2, 1fr); }
   .palette { grid-template-columns: repeat(3, 1fr); }
   .nav__links { display: none; }
+  .detalle-grid { grid-template-columns: 1fr; }
 }

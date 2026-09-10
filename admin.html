@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FONHINCAS — Administración</title>
+  <link rel="icon" type="image/svg+xml" href="assets/img/icon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/styles.css?v=0.6" />
+</head>
+<body>
+
+  <header class="nav">
+    <div class="wrap">
+      <a class="logo" href="index.html">
+        <img class="logo__icon" src="assets/img/icon.svg" alt="" />
+        <span class="logo__word">Fonhincas</span>
+      </a>
+      <nav class="nav__links">
+        <a href="index.html">Inicio</a>
+        <a href="simulador.html">Simulador</a>
+        <a href="solicitud.html">Solicitud</a>
+      </nav>
+      <span class="nav__version">v0.6</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="section" style="padding-top: var(--space-5);">
+      <div class="wrap admin-wrap">
+
+        <!-- Login -->
+        <div id="vistaLogin">
+          <div class="section__head" style="text-align:center; margin: 0 auto var(--space-4);">
+            <span class="eyebrow" style="justify-content:center;">Administración</span>
+            <h2>Acceso administrador</h2>
+          </div>
+          <form class="form-card" id="loginForm" style="max-width: 420px;">
+            <div class="field">
+              <label for="loginUsuario">Usuario</label>
+              <input type="text" id="loginUsuario" name="usuario" autocomplete="username" required />
+            </div>
+            <div class="field">
+              <label for="loginContrasena">Contraseña</label>
+              <input type="password" id="loginContrasena" name="contrasena" autocomplete="current-password" required />
+            </div>
+            <button class="btn btn--primary btn--uppercase" id="loginSubmit" type="submit">Ingresar</button>
+            <p class="simulator__error" id="loginError" hidden></p>
+          </form>
+        </div>
+
+        <!-- Lista de solicitudes -->
+        <div id="vistaLista" hidden>
+          <div class="admin-topbar">
+            <div class="section__head" style="margin:0;">
+              <span class="eyebrow">Administración</span>
+              <h2>Solicitudes pendientes</h2>
+            </div>
+            <button class="btn btn--ghost" id="btnSalir" type="button">Salir</button>
+          </div>
+          <div id="listaSolicitudes"></div>
+        </div>
+
+        <!-- Detalle / aprobación -->
+        <div id="vistaDetalle" hidden>
+          <div class="admin-topbar">
+            <div class="section__head" style="margin:0;">
+              <span class="eyebrow">Administración</span>
+              <h2>Aprobar préstamo</h2>
+            </div>
+            <button class="btn btn--ghost" id="btnVolver" type="button">Volver a la lista</button>
+          </div>
+
+          <form class="form-card" id="detalleForm">
+            <div class="detalle-grid">
+              <div class="kv"><div class="k">Fecha de revisión</div><div class="v" id="dFechaRevision"></div></div>
+              <div class="kv"><div class="k">Administrador</div><div class="v" id="dAdministrador"></div></div>
+              <div class="kv"><div class="k">Solicitante</div><div class="v" id="dNombre"></div></div>
+              <div class="kv"><div class="k">Servicio</div><div class="v" id="dServicio"></div></div>
+              <div class="kv"><div class="k">Monto</div><div class="v" id="dMonto"></div></div>
+              <div class="kv"><div class="k">Número de cuotas</div><div class="v" id="dCuotas"></div></div>
+              <div class="kv"><div class="k">Valor de la cuota</div><div class="v" id="dCuota"></div></div>
+              <div class="kv"><div class="k">Tasa de interés</div><div class="v" id="dTasa"></div></div>
+              <div class="kv"><div class="k">Fecha de pago</div><div class="v" id="dFechaPago"></div></div>
+            </div>
+
+            <div class="field">
+              <label for="observaciones">Observaciones (opcional)</label>
+              <textarea id="observaciones" name="observaciones" rows="3"></textarea>
+            </div>
+
+            <div class="field">
+              <label>Anexo 1 — Tabla de amortización</label>
+              <div class="table-wrap" id="dTablaWrap"></div>
+            </div>
+
+            <div class="field">
+              <label>Anexo 2 — Foto del desembolso (opcional)</label>
+              <div class="upload-zone" id="uploadZone" tabindex="0">
+                <span id="uploadZoneTexto">Haz clic para subir una imagen, o pégala aquí (Ctrl+V)</span>
+                <input type="file" id="uploadInput" accept="image/*" hidden />
+                <img id="uploadPreview" hidden alt="Foto del desembolso" />
+              </div>
+            </div>
+
+            <div class="field">
+              <label>Firma</label>
+              <canvas class="signature-pad" id="firmaPad"></canvas>
+              <button class="btn btn--ghost" id="btnLimpiarFirma" type="button" style="justify-self:start;">Limpiar firma</button>
+            </div>
+
+            <button class="btn btn--primary btn--uppercase" id="detalleSubmit" type="submit">Guardar préstamo</button>
+            <p class="simulator__error" id="detalleError" hidden></p>
+            <p class="form-note" id="detalleNota" hidden></p>
+          </form>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <script src="assets/js/api.js?v=0.6"></script>
+  <script src="assets/js/admin.js?v=0.6"></script>
+</body>
+</html>
