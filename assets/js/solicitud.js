@@ -1,13 +1,28 @@
 (function () {
+  var MAX_CUOTAS = 36;
+
   var form = document.getElementById('solicitudForm');
   var servicioSelect = document.getElementById('servicio');
+  var fechaInput = document.getElementById('fecha');
+  var cuotasInput = document.getElementById('cuotas');
   var errorBox = document.getElementById('solicitudError');
   var nota = document.getElementById('solicitudNota');
+  var submitBtn = document.getElementById('solicitudSubmit');
+
+  // Fecha mínima: hoy (hora Bogotá), no se permite el pasado.
+  fechaInput.min = hoyBogota();
+
+  function hoyBogota() {
+    var partes = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).formatToParts(new Date());
+    var m = {};
+    partes.forEach(function (p) { m[p.type] = p.value; });
+    return m.year + '-' + m.month + '-' + m.day;
+  }
 
   // Precarga monto/cuotas si venimos del simulador.
   var qs = new URLSearchParams(window.location.search);
   if (qs.get('monto')) document.getElementById('montoSolicitud').value = qs.get('monto');
-  if (qs.get('plazo')) document.getElementById('cuotas').value = qs.get('plazo');
+  if (qs.get('plazo')) cuotasInput.value = Math.min(parseInt(qs.get('plazo'), 10) || 0, MAX_CUOTAS);
 
   // Carga la lista de servicios válidos desde CONFIGURACION.
   FonhincasAPI.fetchJson({ accion: 'servicios' })
@@ -44,7 +59,20 @@
     errorBox.hidden = true;
     nota.hidden = true;
 
+    if (form.fecha.value < fechaInput.min) {
+      errorBox.textContent = 'La fecha no puede ser anterior a hoy.';
+      errorBox.hidden = false;
+      return;
+    }
+
+    if (parseInt(form.cuotas.value, 10) > MAX_CUOTAS) {
+      errorBox.textContent = 'El número de cuotas no puede superar ' + MAX_CUOTAS + '.';
+      errorBox.hidden = false;
+      return;
+    }
+
     var payload = {
+      accion: 'guardarSolicitud',
       nombre: form.nombre.value,
       fecha: form.fecha.value,
       servicio: form.servicio.value,
@@ -56,9 +84,25 @@
         : null
     };
 
-    // El guardado en la hoja y la notificación de llenado se conectan en la siguiente fase.
-    console.log('Solicitud (aún no se guarda):', payload);
-    nota.textContent = 'Formulario validado correctamente. El guardado y la notificación se activarán próximamente.';
-    nota.hidden = false;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Enviando…';
+
+    FonhincasAPI.postJson(payload)
+      .then(function (json) {
+        if (!json.ok) throw new Error(json.error || 'No fue posible enviar la solicitud.');
+        nota.textContent = 'Solicitud enviada. Estado: ' + json.data.estado + '. Te contactaremos pronto.';
+        nota.hidden = false;
+        form.reset();
+        document.getElementById('camposLink').hidden = true;
+        document.getElementById('camposConsignacion').hidden = true;
+      })
+      .catch(function (err) {
+        errorBox.textContent = err.message;
+        errorBox.hidden = false;
+      })
+      .finally(function () {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Enviar solicitud';
+      });
   });
 })();

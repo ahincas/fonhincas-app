@@ -11,16 +11,18 @@
   var moneyFmt = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
   var moneyFmt2 = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 2 });
 
+  var MAX_PLAZO = 36;
+
   var CAMPOS = {
-    plazo: { id: 'plazo', label: 'Plazo (meses)', placeholder: 'Ej: 12', step: '1' },
-    cuota: { id: 'cuota', label: 'Valor de la cuota', placeholder: 'Ej: 90.000', step: 'any' }
+    plazo: { id: 'plazo', label: 'Plazo (meses)', placeholder: 'Ej: 12', step: '1', max: MAX_PLAZO },
+    cuota: { id: 'cuota', label: 'Valor de la cuota', placeholder: 'Ej: 90.000', step: 'any', max: '' }
   };
 
   function renderCampoSecundario() {
     var c = CAMPOS[modoActual];
     campoSecundario.innerHTML =
-      '<label for="' + c.id + '">' + c.label + '</label>' +
-      '<input type="number" id="' + c.id + '" name="' + c.id + '" placeholder="' + c.placeholder + '" step="' + c.step + '" min="0" required />';
+      '<label for="' + c.id + '">' + c.label + (c.max ? ' (máx. ' + c.max + ')' : '') + '</label>' +
+      '<input type="number" id="' + c.id + '" name="' + c.id + '" placeholder="' + c.placeholder + '" step="' + c.step + '" min="0"' + (c.max ? ' max="' + c.max + '"' : '') + ' required />';
   }
 
   tabs.forEach(function (tab) {

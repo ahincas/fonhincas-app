@@ -26,5 +26,27 @@ window.FonhincasAPI = (function () {
       });
   }
 
-  return { fetchJson: fetchJson };
+  function postJson(payload, intentos) {
+    intentos = intentos || 3;
+
+    return fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    })
+      .then(function (res) { return res.text(); })
+      .then(function (text) {
+        try {
+          return JSON.parse(text);
+        } catch (e) {
+          if (intentos > 1) {
+            return new Promise(function (resolve) { setTimeout(resolve, 900); })
+              .then(function () { return postJson(payload, intentos - 1); });
+          }
+          throw new Error('El servidor no respondió correctamente. Intenta de nuevo en unos segundos.');
+        }
+      });
+  }
+
+  return { fetchJson: fetchJson, postJson: postJson };
 })();
