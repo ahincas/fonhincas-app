@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FONHINCAS — Simular préstamo</title>
+  <link rel="icon" type="image/svg+xml" href="assets/img/icon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/styles.css?v=0.3" />
+</head>
+<body>
+
+  <header class="nav">
+    <div class="wrap">
+      <a class="logo" href="index.html">
+        <img class="logo__icon" src="assets/img/icon.svg" alt="" />
+        <span class="logo__word">Fonhincas</span>
+      </a>
+      <nav class="nav__links">
+        <a href="index.html">Inicio</a>
+      </nav>
+      <span class="nav__version">v0.3</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="section" style="padding-top: var(--space-5);">
+      <div class="wrap simulator">
+        <div class="section__head" style="text-align:center; margin: 0 auto var(--space-4);">
+          <span class="eyebrow" style="justify-content:center;">Simulador</span>
+          <h2>Simula tu préstamo</h2>
+        </div>
+
+        <div class="simulator__tabs" role="tablist">
+          <button class="tab" type="button" data-modo="plazo" role="tab" aria-selected="true">Por plazo</button>
+          <button class="tab" type="button" data-modo="cuota" role="tab" aria-selected="false">Por cuota</button>
+        </div>
+
+        <form class="simulator__form" id="simuladorForm">
+          <div class="field">
+            <label for="monto">Monto a solicitar</label>
+            <input type="number" id="monto" name="monto" placeholder="Ej: 1.000.000" step="any" min="0" required />
+          </div>
+          <div class="field" id="campoSecundario"></div>
+          <button class="btn btn--primary" id="simuladorSubmit" type="submit">Calcular</button>
+          <p class="simulator__error" id="simuladorError" hidden></p>
+        </form>
+
+        <div class="simulator__result" id="simuladorResult"></div>
+        <div class="table-wrap" id="simuladorTableWrap"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="assets/js/simulador.js?v=0.3"></script>
+</body>
+</html>

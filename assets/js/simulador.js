@@ -71,12 +71,12 @@
   function mostrarResultado(data) {
     if (modoActual === 'plazo') {
       resultBox.innerHTML =
-        '<div class="value">' + moneyFmt2.format(data.cuota) + '</div>' +
-        '<div class="label">Cuota mensual estimada</div>';
+        '<div class="result-box"><div class="value">' + moneyFmt2.format(data.cuota) + '</div>' +
+        '<div class="label">Cuota mensual estimada</div></div>';
     } else {
       resultBox.innerHTML =
-        '<div class="value">' + data.plazo + ' meses</div>' +
-        '<div class="label">Plazo estimado</div>';
+        '<div class="result-box"><div class="value">' + data.plazo + ' meses</div>' +
+        '<div class="label">Plazo estimado</div></div>';
     }
 
     var rows = data.tabla.map(function (r) {
@@ -91,9 +91,12 @@
     }).join('');
 
     tableWrap.innerHTML =
-      '<table class="amort">' +
+      '<div class="table-wrap__scroll"><table class="amort">' +
       '<thead><tr><th>Mes</th><th>Saldo inicial</th><th>Cuota</th><th>Interés</th><th>Abono capital</th><th>Saldo final</th></tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
-      '</table>';
+      '</table></div>' +
+      '<div class="table-cta">' +
+      '<button class="btn btn--primary btn--uppercase" type="button" id="btnSolicitar">Haz tu préstamo</button>' +
+      '</div>';
   }
 })();

@@ -443,30 +443,46 @@ p { margin: 0; }
   padding: 0.75em 1em;
 }
 
-.simulator__result {
+.simulator__result { margin: var(--space-4) 0; }
+
+.result-box {
   text-align: center;
-  padding: var(--space-4) 0 var(--space-2);
+  background: var(--c-mint-200);
+  border-radius: var(--radius);
+  padding: var(--space-4);
 }
 
-.simulator__result .value {
-  font-size: 2.5rem;
+.result-box .value {
+  font-size: 3rem;
   font-weight: 800;
   color: var(--c-teal-800);
   letter-spacing: -0.02em;
+  line-height: 1.1;
 }
 
-.simulator__result .label {
-  margin-top: 0.25rem;
-  font-size: 0.85rem;
-  color: var(--c-text-muted);
+.result-box .label {
+  margin-top: 0.35rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--c-teal-800);
+  opacity: 0.75;
+}
+
+.table-cta {
+  text-align: center;
+  padding: var(--space-4);
+  border-top: 1px solid var(--c-border);
+  background: var(--c-surface);
 }
 
 .table-wrap {
   margin-top: var(--space-3);
-  overflow-x: auto;
   border: 1px solid var(--c-border);
   border-radius: var(--radius);
+  overflow: hidden;
 }
+
+.table-wrap__scroll { overflow-x: auto; }
 
 table.amort {
   width: 100%;
