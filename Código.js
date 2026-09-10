@@ -18,6 +18,9 @@ var PRESTAMOS_HEADERS = [
   'Fecha de revisión', 'Administrador', 'ID préstamo', 'Nombre', 'Monto', 'Cuotas', 'Valor cuota', 'Tasa interés',
   'Fecha de pago', 'Observaciones', 'PDF', 'Pagado', 'Debe', 'Cuotas faltan', 'Siguiente cuota', 'Estado'
 ];
+var SOLICITUD_HEADERS = [
+  'Marca temporal', 'Nombre', 'Correo', 'Fecha', 'Servicio', 'Monto', 'Cuotas', 'Link de pago', 'Banco', 'Cuenta o llave', 'Estado'
+];
 
 /**
  * ---------- Rendimiento ----------
@@ -190,6 +193,7 @@ function doPost(e) {
 /** Valida y guarda una solicitud de préstamo en la hoja SOLICITUD, y notifica por correo. */
 function guardarSolicitud_(body) {
   var nombre = String(body.nombre || '').trim();
+  var correo = String(body.correo || '').trim();
   var fecha = String(body.fecha || '').trim();
   var servicio = String(body.servicio || '').trim();
   var monto = parseFloat(body.monto);
@@ -200,6 +204,7 @@ function guardarSolicitud_(body) {
   var cuentaLlave = consignacion ? String(consignacion.cuentaLlave || '').trim() : '';
 
   if (!nombre) throw new Error('El nombre es obligatorio.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) throw new Error('El correo no es válido.');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new Error('La fecha no es válida.');
 
   var hoy = Utilities.formatDate(new Date(), 'America/Bogota', 'yyyy-MM-dd');
@@ -211,11 +216,11 @@ function guardarSolicitud_(body) {
 
   var sheet = getOCrearHojaSolicitudes_();
   var estado = 'PENDIENTE';
-  sheet.appendRow([new Date(), nombre, fecha, servicio, monto, cuotas, linkPago, banco, cuentaLlave, estado]);
+  sheet.appendRow([new Date(), nombre, correo, fecha, servicio, monto, cuotas, linkPago, banco, cuentaLlave, estado]);
 
   try {
     notificarSolicitud_({
-      nombre: nombre, fecha: fecha, servicio: servicio, monto: monto, cuotas: cuotas,
+      nombre: nombre, correo: correo, fecha: fecha, servicio: servicio, monto: monto, cuotas: cuotas,
       linkPago: linkPago, banco: banco, cuentaLlave: cuentaLlave
     });
   } catch (err) {
@@ -258,8 +263,8 @@ function listarSolicitudes_() {
     if (!fila[1]) continue;
     out.push({
       fila: r + 1,
-      nombre: fila[1], fecha: formatearFechaCelda_(fila[2]), servicio: fila[3], monto: fila[4], cuotas: fila[5],
-      linkPago: fila[6], banco: fila[7], cuentaLlave: fila[8], estado: fila[9]
+      nombre: fila[1], correo: fila[2], fecha: formatearFechaCelda_(fila[3]), servicio: fila[4], monto: fila[5], cuotas: fila[6],
+      linkPago: fila[7], banco: fila[8], cuentaLlave: fila[9], estado: fila[10]
     });
   }
   return out;
@@ -269,17 +274,17 @@ function listarSolicitudes_() {
 function detalleSolicitud_(fila) {
   var sheet = getOCrearHojaSolicitudes_();
   if (!(fila >= 2)) throw new Error('Solicitud inválida.');
-  var datos = sheet.getRange(fila, 1, 1, 10).getValues()[0];
+  var datos = sheet.getRange(fila, 1, 1, SOLICITUD_HEADERS.length).getValues()[0];
   if (!datos[1]) throw new Error('La solicitud ya no existe (puede que ya haya sido procesada).');
 
-  var nombre = datos[1], fechaSolicitud = formatearFechaCelda_(datos[2]), servicio = datos[3];
-  var monto = Number(datos[4]), cuotas = Number(datos[5]);
+  var nombre = datos[1], correo = datos[2], fechaSolicitud = formatearFechaCelda_(datos[3]), servicio = datos[4];
+  var monto = Number(datos[5]), cuotas = Number(datos[6]);
   var tasa = getTasaMensual_();
   var sim = simularPorPlazo_(monto, tasa, cuotas);
   var hoy = Utilities.formatDate(new Date(), ZONA_HORARIA, 'yyyy-MM-dd');
 
   return {
-    fila: fila, nombre: nombre, fechaSolicitud: fechaSolicitud, servicio: servicio,
+    fila: fila, nombre: nombre, correo: correo, fechaSolicitud: fechaSolicitud, servicio: servicio,
     monto: monto, cuotas: cuotas, tasa: tasa, cuota: sim.cuota, tabla: sim.tabla,
     fechaRevision: hoy, fechaPago: calcularFechaPago_(hoy)
   };
@@ -374,7 +379,51 @@ function guardarPrestamo_(body) {
     // El préstamo ya quedó guardado; un fallo al registrar el desembolso automático no debe invalidar la aprobación.
   }
 
+  try {
+    crearEventosCuotasPrestamo_(idPrestamo, detalle.nombre, detalle.cuotas, detalle.cuota, detalle.fechaPago);
+  } catch (err) {
+    // Igual que con el desembolso: si fallan los eventos de calendario, el préstamo ya quedó aprobado.
+  }
+
+  try {
+    if (detalle.correo) notificarAprobacion_(detalle.correo, detalle.nombre, pdf, nombreArchivo);
+  } catch (err) {
+    // El préstamo ya quedó guardado; un fallo al enviar el correo no debe invalidar la aprobación.
+  }
+
   return { idPrestamo: idPrestamo, pdfUrl: archivoPdf.getUrl() };
+}
+
+/** Crea un evento de todo el día por cada cuota, uno por mes, empezando en la fecha de la primera cuota. */
+function crearEventosCuotasPrestamo_(idPrestamo, nombre, cuotas, valorCuota, fechaPrimeraCuota) {
+  var calendario = CalendarApp.getDefaultCalendar();
+  var montoTexto = '$' + Math.round(valorCuota).toLocaleString('es-CO');
+
+  for (var i = 0; i < cuotas; i++) {
+    var fechaStr = i === 0 ? fechaPrimeraCuota : sumarMeses_(fechaPrimeraCuota, i);
+    var fecha = new Date(fechaStr + 'T12:00:00-05:00');
+    calendario.createAllDayEvent(
+      'Cuota ' + (i + 1) + '/' + cuotas + ' — ' + nombre + ' — ' + montoTexto + ' (Préstamo N.º ' + idPrestamo + ')',
+      fecha
+    );
+  }
+}
+
+/** Envía al correo del solicitante la notificación de aprobación, con el PDF del préstamo adjunto. */
+function notificarAprobacion_(correo, nombre, pdfBlob, nombreArchivo) {
+  var asunto = '¡Tu préstamo fue aprobado! — FONHINCAS';
+  var cuerpo = 'Hola ' + nombre + ',\n\n' +
+    '¡Felicidades por hacer parte de nuestra familia! Tu préstamo fue aprobado y el dinero ya fue desembolsado. ' +
+    'Próximamente se verá reflejado en el medio que elegiste.\n\n' +
+    'Puedes consultar los detalles en el documento adjunto o en nuestra página web, en la función "Consultar".\n\n' +
+    '— FONHINCAS';
+
+  MailApp.sendEmail({
+    to: correo,
+    subject: asunto,
+    body: cuerpo,
+    attachments: [pdfBlob.setName(nombreArchivo)]
+  });
 }
 
 /** Construye el PDF del préstamo (datos + tabla de amortización + firma + foto del desembolso) y lo devuelve como blob. */
@@ -762,8 +811,10 @@ function getOCrearHojaSolicitudes_() {
   var sheet = libro.getSheetByName(HOJA_SOLICITUDES);
   if (!sheet) {
     sheet = libro.insertSheet(HOJA_SOLICITUDES);
-    sheet.appendRow(['Marca temporal', 'Nombre', 'Fecha', 'Servicio', 'Monto', 'Cuotas', 'Link de pago', 'Banco', 'Cuenta o llave', 'Estado']);
+    sheet.appendRow(SOLICITUD_HEADERS);
     sheet.setFrozenRows(1);
+  } else if (sheet.getLastRow() <= 1) {
+    sheet.getRange(1, 1, 1, SOLICITUD_HEADERS.length).setValues([SOLICITUD_HEADERS]);
   }
   return sheet;
 }
@@ -789,6 +840,7 @@ function notificarSolicitud_(datos) {
   var asunto = 'Nueva solicitud de préstamo — ' + datos.nombre;
   var cuerpo = 'Se registró una nueva solicitud en FONHINCAS:\n\n' +
     'Nombre: ' + datos.nombre + '\n' +
+    'Correo: ' + datos.correo + '\n' +
     'Fecha: ' + datos.fecha + '\n' +
     'Servicio: ' + datos.servicio + '\n' +
     'Monto: ' + datos.monto + '\n' +

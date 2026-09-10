@@ -76,6 +76,7 @@
     var payload = {
       accion: 'guardarSolicitud',
       nombre: form.nombre.value,
+      correo: form.correo.value,
       fecha: form.fecha.value,
       servicio: form.servicio.value,
       monto: form.monto.value,

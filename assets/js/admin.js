@@ -155,6 +155,7 @@
     document.getElementById('dFechaRevision').textContent = d.fechaRevision;
     document.getElementById('dAdministrador').textContent = sesion.usuario;
     document.getElementById('dNombre').textContent = d.nombre;
+    document.getElementById('dCorreo').textContent = d.correo;
     document.getElementById('dServicio').textContent = d.servicio;
     document.getElementById('dMonto').textContent = moneyFmt.format(d.monto);
     document.getElementById('dCuotas').textContent = d.cuotas;
