@@ -44,6 +44,8 @@
 
 * { box-sizing: border-box; }
 
+[hidden] { display: none !important; }
+
 html { scroll-behavior: smooth; }
 
 body {
@@ -418,7 +420,8 @@ p { margin: 0; }
   letter-spacing: 0.02em;
 }
 
-.field input {
+.field input,
+.field select {
   font-family: var(--font-base);
   font-size: 1.05rem;
   font-weight: 600;
@@ -429,7 +432,8 @@ p { margin: 0; }
   padding: 0.75em 0.9em;
 }
 
-.field input:focus {
+.field input:focus,
+.field select:focus {
   outline: none;
   border-color: var(--c-teal-600);
 }
@@ -515,6 +519,100 @@ table.amort td {
 }
 
 table.amort tbody tr:nth-child(even) { background: var(--c-bg); }
+
+/* ---------- Formulario de solicitud ---------- */
+
+.form-card {
+  max-width: 560px;
+  margin: 0 auto;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-card);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.field textarea {
+  font-family: var(--font-base);
+  font-size: 1rem;
+  color: var(--c-text);
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  padding: 0.75em 0.9em;
+  resize: vertical;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.switch-row .switch-label {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--c-text);
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 46px;
+  height: 26px;
+  flex: none;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch .track {
+  position: absolute;
+  inset: 0;
+  background: var(--c-border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.switch .track::before {
+  content: "";
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  left: 3px;
+  top: 3px;
+  background: var(--c-surface);
+  border-radius: 50%;
+  transition: transform 0.15s ease;
+  box-shadow: 0 1px 2px rgba(7, 16, 20, 0.25);
+}
+
+.switch input:checked + .track { background: var(--c-teal-600); }
+.switch input:checked + .track::before { transform: translateX(20px); }
+.switch input:focus-visible + .track { outline: 2px solid var(--c-teal-600); outline-offset: 2px; }
+
+.conditional-fields {
+  display: grid;
+  gap: var(--space-3);
+  padding-top: var(--space-1);
+}
+
+.form-note {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--c-teal-800);
+  background: var(--c-mint-200);
+  border-radius: var(--radius-sm);
+  padding: 0.85em 1em;
+  text-align: center;
+}
 
 /* ---------- Responsive ---------- */
 

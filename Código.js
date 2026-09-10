@@ -8,6 +8,11 @@ var SPREADSHEET_ID = '19eegTaeEZt9USJ8UVBuCHpp0uGqXKWvFGvK1RM_c5mU';
 function doGet(e) {
   try {
     var params = (e && e.parameter) || {};
+
+    if (params.accion === 'servicios') {
+      return jsonResponse_({ ok: true, data: { servicios: getServiciosDisponibles_() } });
+    }
+
     var monto = parseFloat(params.monto);
     var tasa = getTasaMensual_();
     var resultado;
@@ -24,6 +29,28 @@ function doGet(e) {
   } catch (err) {
     return jsonResponse_({ ok: false, error: err.message });
   }
+}
+
+/** Lee la lista de servicios válidos: todos los valores bajo la columna NOMBRE_SERVICIO en CONFIGURACION. */
+function getServiciosDisponibles_() {
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('CONFIGURACION');
+  if (!sheet) throw new Error('No se encontró la hoja CONFIGURACION.');
+
+  var data = sheet.getDataRange().getValues();
+  for (var r = 0; r < data.length; r++) {
+    for (var c = 0; c < data[r].length; c++) {
+      if (String(data[r][c]).trim().toUpperCase() === 'NOMBRE_SERVICIO') {
+        var servicios = [];
+        for (var i = r + 1; i < data.length; i++) {
+          var valor = String(data[i][c]).trim();
+          if (!valor) break;
+          servicios.push(valor);
+        }
+        return servicios;
+      }
+    }
+  }
+  throw new Error('No se encontró la columna NOMBRE_SERVICIO en CONFIGURACION.');
 }
 
 /** Lee el valor en la celda inmediatamente debajo de la etiqueta TASA_MENSUAL, en la hoja CONFIGURACION. */

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FONHINCAS — Solicitar préstamo</title>
+  <link rel="icon" type="image/svg+xml" href="assets/img/icon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/styles.css?v=0.4" />
+</head>
+<body>
+
+  <header class="nav">
+    <div class="wrap">
+      <a class="logo" href="index.html">
+        <img class="logo__icon" src="assets/img/icon.svg" alt="" />
+        <span class="logo__word">Fonhincas</span>
+      </a>
+      <nav class="nav__links">
+        <a href="index.html">Inicio</a>
+        <a href="simulador.html">Simulador</a>
+      </nav>
+      <span class="nav__version">v0.4</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="section" style="padding-top: var(--space-5);">
+      <div class="wrap simulator">
+        <div class="section__head" style="text-align:center; margin: 0 auto var(--space-4);">
+          <span class="eyebrow" style="justify-content:center;">Solicitud</span>
+          <h2>Haz tu préstamo</h2>
+        </div>
+
+        <form class="form-card" id="solicitudForm">
+          <div class="field">
+            <label for="nombre">Nombre</label>
+            <input type="text" id="nombre" name="nombre" placeholder="Nombre completo" required />
+          </div>
+
+          <div class="field">
+            <label for="fecha">Fecha</label>
+            <input type="date" id="fecha" name="fecha" required />
+          </div>
+
+          <div class="field">
+            <label for="servicio">Servicio</label>
+            <select id="servicio" name="servicio" required>
+              <option value="" disabled selected>Cargando servicios…</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="montoSolicitud">Monto requerido</label>
+            <input type="number" id="montoSolicitud" name="monto" placeholder="Ej: 1.000.000" step="any" min="0" required />
+          </div>
+
+          <div class="field">
+            <label for="cuotas">Número de cuotas a pagar</label>
+            <input type="number" id="cuotas" name="cuotas" placeholder="Ej: 12" step="1" min="1" required />
+          </div>
+
+          <div class="field">
+            <div class="switch-row">
+              <span class="switch-label">¿Vas a poner un link de pago?</span>
+              <label class="switch">
+                <input type="checkbox" id="switchLink" />
+                <span class="track"></span>
+              </label>
+            </div>
+            <div class="conditional-fields" id="camposLink" hidden>
+              <div class="field">
+                <label for="linkPago">Enlace de pago</label>
+                <input type="url" id="linkPago" name="linkPago" placeholder="https://..." />
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="switch-row">
+              <span class="switch-label">¿Vas a poner consignación?</span>
+              <label class="switch">
+                <input type="checkbox" id="switchConsignacion" />
+                <span class="track"></span>
+              </label>
+            </div>
+            <div class="conditional-fields" id="camposConsignacion" hidden>
+              <div class="field">
+                <label for="banco">Nombre del banco</label>
+                <input type="text" id="banco" name="banco" placeholder="Ej: Bancolombia" />
+              </div>
+              <div class="field">
+                <label for="cuentaLlave">Cuenta o llave</label>
+                <input type="text" id="cuentaLlave" name="cuentaLlave" placeholder="Número de cuenta o llave" />
+              </div>
+            </div>
+          </div>
+
+          <button class="btn btn--primary btn--uppercase" id="solicitudSubmit" type="submit">Enviar solicitud</button>
+          <p class="simulator__error" id="solicitudError" hidden></p>
+          <p class="form-note" id="solicitudNota" hidden></p>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <script src="assets/js/api.js?v=0.4"></script>
+  <script src="assets/js/solicitud.js?v=0.4"></script>
+</body>
+</html>

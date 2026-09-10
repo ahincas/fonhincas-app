@@ -1,6 +1,4 @@
 (function () {
-  var API_URL = 'https://script.google.com/macros/s/AKfycbxyJw-4kRWEwFFqlJmYM2B7iuyZsNbxJHT7hRDRObfHjJReY43AE6NCdGF6sbYZXEMM/exec';
-
   var modoActual = 'plazo';
   var tabs = document.querySelectorAll('.tab');
   var campoSecundario = document.getElementById('campoSecundario');
@@ -46,14 +44,13 @@
     tableWrap.innerHTML = '';
 
     var monto = form.monto.value;
-    var params = new URLSearchParams({ modo: modoActual, monto: monto });
-    params.set(CAMPOS[modoActual].id, form[CAMPOS[modoActual].id].value);
+    var params = { modo: modoActual, monto: monto };
+    params[CAMPOS[modoActual].id] = form[CAMPOS[modoActual].id].value;
 
     submitBtn.disabled = true;
     submitBtn.textContent = 'Calculando…';
 
-    fetch(API_URL + '?' + params.toString())
-      .then(function (res) { return res.json(); })
+    FonhincasAPI.fetchJson(params)
       .then(function (json) {
         if (!json.ok) throw new Error(json.error || 'No fue posible calcular la simulación.');
         mostrarResultado(json.data);
@@ -98,5 +95,10 @@
       '<div class="table-cta">' +
       '<button class="btn btn--primary btn--uppercase" type="button" id="btnSolicitar">Haz tu préstamo</button>' +
       '</div>';
+
+    document.getElementById('btnSolicitar').addEventListener('click', function () {
+      var params = new URLSearchParams({ monto: data.monto, plazo: data.plazo });
+      window.location.href = 'solicitud.html?' + params.toString();
+    });
   }
 })();
