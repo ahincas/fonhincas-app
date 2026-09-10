@@ -8,6 +8,7 @@ var MAX_PLAZO_MESES = 36;
 var CORREO_NOTIFICACION = 'ahincapiecpersonal@gmail.com';
 var HOJA_SOLICITUDES = 'SOLICITUD';
 var HOJA_PRESTAMOS = 'PRESTAMOS_ACTIVOS';
+var HOJA_MOVIMIENTOS = 'MOVIMIENTOS';
 var ZONA_HORARIA = 'America/Bogota';
 var HORA_RECORDATORIO = '20:30:00-05:00';
 var MESES_ES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
@@ -67,6 +68,14 @@ function doPost(e) {
         return jsonResponse_({ ok: true, data: detalleSolicitud_(parseInt(body.fila, 10)) });
       case 'guardarPrestamo':
         return jsonResponse_({ ok: true, data: guardarPrestamo_(body) });
+      case 'tiposMovimiento':
+        validarAdmin_(body.usuario, body.contrasena);
+        return jsonResponse_({ ok: true, data: { tipos: getTiposMovimiento_() } });
+      case 'listarPrestamosActivos':
+        validarAdmin_(body.usuario, body.contrasena);
+        return jsonResponse_({ ok: true, data: { prestamos: listarPrestamosActivos_() } });
+      case 'registrarMovimiento':
+        return jsonResponse_({ ok: true, data: registrarMovimiento_(body) });
       default:
         throw new Error('Acción inválida.');
     }
@@ -250,7 +259,7 @@ function guardarPrestamo_(body) {
   var archivoPdf = carpeta.createFile(pdf).setName(nombreArchivo);
 
   hojaPrestamos.appendRow([
-    detalle.fechaRevision, administrador, idPrestamo, detalle.monto, detalle.cuotas,
+    detalle.fechaRevision, administrador, idPrestamo, detalle.nombre, detalle.monto, detalle.cuotas,
     detalle.cuota, detalle.tasa, detalle.fechaPago, observaciones, archivoPdf.getUrl()
   ]);
 
@@ -328,10 +337,101 @@ function getOCrearHojaPrestamos_() {
   var sheet = libro.getSheetByName(HOJA_PRESTAMOS);
   if (!sheet) {
     sheet = libro.insertSheet(HOJA_PRESTAMOS);
-    sheet.appendRow(['Fecha de revisión', 'Administrador', 'ID préstamo', 'Monto', 'Cuotas', 'Valor cuota', 'Tasa interés', 'Fecha de pago', 'Observaciones', 'PDF']);
+    sheet.appendRow(['Fecha de revisión', 'Administrador', 'ID préstamo', 'Nombre', 'Monto', 'Cuotas', 'Valor cuota', 'Tasa interés', 'Fecha de pago', 'Observaciones', 'PDF']);
     sheet.setFrozenRows(1);
   }
   return sheet;
+}
+
+/** Obtiene la hoja MOVIMIENTOS, creándola con encabezados si todavía no existe. */
+function getOCrearHojaMovimientos_() {
+  var libro = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = libro.getSheetByName(HOJA_MOVIMIENTOS);
+  if (!sheet) {
+    sheet = libro.insertSheet(HOJA_MOVIMIENTOS);
+    sheet.appendRow(['ID', 'Fecha', 'Tipo', 'ID préstamo', 'Nombre', 'Cantidad', 'Comentarios']);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+/** Lee los pares Tipo/Movimiento de CONFIGURACION: columna "TIPO" y, en la columna inmediatamente a la derecha, "MOVIMIENTO" ('+' o '-'). */
+function getTiposMovimiento_() {
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('CONFIGURACION');
+  if (!sheet) throw new Error('No se encontró la hoja CONFIGURACION.');
+
+  var data = sheet.getDataRange().getValues();
+  for (var r = 0; r < data.length; r++) {
+    for (var c = 0; c < data[r].length; c++) {
+      if (String(data[r][c]).trim().toUpperCase() === 'TIPO' && String(data[r][c + 1]).trim().toUpperCase() === 'MOVIMIENTO') {
+        var tipos = [];
+        for (var i = r + 1; i < data.length; i++) {
+          var tipo = String(data[i][c]).trim();
+          if (!tipo) break;
+          var signo = String(data[i][c + 1]).trim().toUpperCase();
+          var esPositivo = signo === '+' || signo === 'SUMA';
+          tipos.push({ tipo: tipo, signo: esPositivo ? '+' : '-' });
+        }
+        return tipos;
+      }
+    }
+  }
+  throw new Error('No se encontraron las columnas TIPO/MOVIMIENTO en CONFIGURACION.');
+}
+
+/** Lista los préstamos activos (hoja PRESTAMOS_ACTIVOS) para poblar el selector del formulario de pagos. */
+function listarPrestamosActivos_() {
+  var data = getOCrearHojaPrestamos_().getDataRange().getValues();
+  var out = [];
+  for (var r = 1; r < data.length; r++) {
+    var fila = data[r];
+    if (fila[2] === '' || fila[2] === null) continue;
+    out.push({
+      idPrestamo: Number(fila[2]), nombre: fila[3], monto: fila[4], cuotas: fila[5],
+      valorCuota: fila[6], fechaPago: formatearFechaCelda_(fila[8])
+    });
+  }
+  return out;
+}
+
+/** Valida y registra un movimiento (pago, préstamo, etc.) contra un préstamo activo. */
+function registrarMovimiento_(body) {
+  validarAdmin_(body.usuario, body.contrasena);
+
+  var tipo = String(body.tipo || '').trim();
+  var idPrestamo = parseInt(body.idPrestamo, 10);
+  var cantidad = parseFloat(body.cantidad);
+  var comentarios = String(body.comentarios || '').trim();
+
+  if (!tipo) throw new Error('El tipo de movimiento es obligatorio.');
+  if (!(idPrestamo >= 0)) throw new Error('Debes indicar el ID del préstamo.');
+  if (isNaN(cantidad) || cantidad === 0) throw new Error('La cantidad es obligatoria y debe ser distinta de 0.');
+  if (!comentarios) throw new Error('Los comentarios son obligatorios.');
+
+  var tipos = getTiposMovimiento_();
+  var tipoInfo = null;
+  for (var t = 0; t < tipos.length; t++) {
+    if (tipos[t].tipo === tipo) { tipoInfo = tipos[t]; break; }
+  }
+  if (!tipoInfo) throw new Error('El tipo de movimiento seleccionado no es válido.');
+
+  if (tipoInfo.signo === '-' && cantidad > 0) throw new Error('Para "' + tipo + '" la cantidad debe ser negativa.');
+  if (tipoInfo.signo === '+' && cantidad < 0) throw new Error('Para "' + tipo + '" la cantidad debe ser positiva.');
+
+  var prestamos = listarPrestamosActivos_();
+  var prestamo = null;
+  for (var p = 0; p < prestamos.length; p++) {
+    if (prestamos[p].idPrestamo === idPrestamo) { prestamo = prestamos[p]; break; }
+  }
+  if (!prestamo) throw new Error('No existe un préstamo activo con ese ID.');
+
+  var sheet = getOCrearHojaMovimientos_();
+  var nuevoId = sheet.getLastRow() - 1; // encabezado en fila 1; los ids empiezan en 0
+  var hoy = Utilities.formatDate(new Date(), ZONA_HORARIA, 'yyyy-MM-dd');
+
+  sheet.appendRow([nuevoId, hoy, tipo, idPrestamo, prestamo.nombre, cantidad, comentarios]);
+
+  return { id: nuevoId, fecha: hoy, nombre: prestamo.nombre };
 }
 
 /** Obtiene la hoja SOLICITUD, creándola con encabezados si todavía no existe. */

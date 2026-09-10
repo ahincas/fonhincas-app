@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/styles.css?v=0.6" />
+  <link rel="stylesheet" href="assets/css/styles.css?v=0.7" />
 </head>
 <body>
 
@@ -23,7 +23,7 @@
         <a href="simulador.html">Simulador</a>
         <a href="solicitud.html">Solicitud</a>
       </nav>
-      <span class="nav__version">v0.6</span>
+      <span class="nav__version">v0.7</span>
     </div>
   </header>
 
@@ -51,6 +51,62 @@
           </form>
         </div>
 
+        <!-- Menú principal -->
+        <div id="vistaMenu" hidden>
+          <div class="admin-topbar">
+            <div class="section__head" style="margin:0;">
+              <span class="eyebrow">Administración</span>
+              <h2>¿Qué quieres hacer?</h2>
+            </div>
+            <button class="btn btn--ghost" id="btnSalirMenu" type="button">Salir</button>
+          </div>
+          <div class="card list-item" id="btnIrPago" style="margin-bottom: var(--space-2);">
+            <h3>Registrar pago</h3>
+            <p>Registra un movimiento (pago, desembolso, aporte, etc.) contra un préstamo activo.</p>
+          </div>
+          <div class="card list-item" id="btnIrSolicitudes">
+            <h3>Solicitudes pendientes</h3>
+            <p>Revisa y aprueba las solicitudes de préstamo recibidas.</p>
+          </div>
+        </div>
+
+        <!-- Registrar pago -->
+        <div id="vistaPago" hidden>
+          <div class="admin-topbar">
+            <div class="section__head" style="margin:0;">
+              <span class="eyebrow">Administración</span>
+              <h2>Registrar pago</h2>
+            </div>
+            <button class="btn btn--ghost" id="btnVolverMenuPago" type="button">Volver al menú</button>
+          </div>
+
+          <form class="form-card" id="pagoForm">
+            <div class="field">
+              <label for="pagoTipo">Tipo de movimiento</label>
+              <select id="pagoTipo" name="tipo" required>
+                <option value="" disabled selected>Cargando tipos…</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="pagoPrestamo">Préstamo</label>
+              <select id="pagoPrestamo" name="idPrestamo" required>
+                <option value="" disabled selected>Cargando préstamos…</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="pagoCantidad" id="pagoCantidadLabel">Cantidad</label>
+              <input type="number" id="pagoCantidad" name="cantidad" step="any" required />
+            </div>
+            <div class="field">
+              <label for="pagoComentarios">Comentarios</label>
+              <textarea id="pagoComentarios" name="comentarios" rows="3" required></textarea>
+            </div>
+            <button class="btn btn--primary btn--uppercase" id="pagoSubmit" type="submit">Registrar movimiento</button>
+            <p class="simulator__error" id="pagoError" hidden></p>
+            <p class="form-note" id="pagoNota" hidden></p>
+          </form>
+        </div>
+
         <!-- Lista de solicitudes -->
         <div id="vistaLista" hidden>
           <div class="admin-topbar">
@@ -58,7 +114,7 @@
               <span class="eyebrow">Administración</span>
               <h2>Solicitudes pendientes</h2>
             </div>
-            <button class="btn btn--ghost" id="btnSalir" type="button">Salir</button>
+            <button class="btn btn--ghost" id="btnVolverMenuLista" type="button">Volver al menú</button>
           </div>
           <div id="listaSolicitudes"></div>
         </div>
@@ -121,7 +177,7 @@
     </section>
   </main>
 
-  <script src="assets/js/api.js?v=0.6"></script>
-  <script src="assets/js/admin.js?v=0.6"></script>
+  <script src="assets/js/api.js?v=0.7"></script>
+  <script src="assets/js/admin.js?v=0.7"></script>
 </body>
 </html>

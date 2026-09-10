@@ -6,6 +6,8 @@
   var dibujando = false;
 
   var vistaLogin = document.getElementById('vistaLogin');
+  var vistaMenu = document.getElementById('vistaMenu');
+  var vistaPago = document.getElementById('vistaPago');
   var vistaLista = document.getElementById('vistaLista');
   var vistaDetalle = document.getElementById('vistaDetalle');
 
@@ -13,7 +15,13 @@
   var moneyFmt2 = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 2 });
 
   function mostrarVista(vista) {
-    [vistaLogin, vistaLista, vistaDetalle].forEach(function (v) { v.hidden = (v !== vista); });
+    [vistaLogin, vistaMenu, vistaPago, vistaLista, vistaDetalle].forEach(function (v) { v.hidden = (v !== vista); });
+  }
+
+  function salir() {
+    sesion.usuario = null;
+    sesion.contrasena = null;
+    mostrarVista(vistaLogin);
   }
 
   // ---------- Login ----------
@@ -37,7 +45,7 @@
         sesion.usuario = json.data.usuario;
         sesion.contrasena = contrasena;
         loginForm.reset();
-        cargarLista();
+        mostrarVista(vistaMenu);
       })
       .catch(function (err) {
         loginError.textContent = err.message;
@@ -49,11 +57,14 @@
       });
   });
 
-  document.getElementById('btnSalir').addEventListener('click', function () {
-    sesion.usuario = null;
-    sesion.contrasena = null;
-    mostrarVista(vistaLogin);
-  });
+  document.getElementById('btnSalirMenu').addEventListener('click', salir);
+
+  // ---------- Menú ----------
+
+  document.getElementById('btnIrPago').addEventListener('click', abrirPago);
+  document.getElementById('btnIrSolicitudes').addEventListener('click', cargarLista);
+  document.getElementById('btnVolverMenuPago').addEventListener('click', function () { mostrarVista(vistaMenu); });
+  document.getElementById('btnVolverMenuLista').addEventListener('click', function () { mostrarVista(vistaMenu); });
 
   // ---------- Lista ----------
 
@@ -282,6 +293,117 @@
       .finally(function () {
         detalleSubmit.disabled = false;
         detalleSubmit.textContent = 'Guardar préstamo';
+      });
+  });
+
+  // ---------- Registrar pago ----------
+
+  var pagoForm = document.getElementById('pagoForm');
+  var pagoTipoSelect = document.getElementById('pagoTipo');
+  var pagoPrestamoSelect = document.getElementById('pagoPrestamo');
+  var pagoCantidadInput = document.getElementById('pagoCantidad');
+  var pagoCantidadLabel = document.getElementById('pagoCantidadLabel');
+  var pagoError = document.getElementById('pagoError');
+  var pagoNota = document.getElementById('pagoNota');
+  var pagoSubmit = document.getElementById('pagoSubmit');
+  var tiposMovimiento = [];
+
+  function abrirPago() {
+    pagoError.hidden = true;
+    pagoNota.hidden = true;
+    pagoForm.reset();
+    pagoTipoSelect.innerHTML = '<option value="" disabled selected>Cargando tipos…</option>';
+    pagoPrestamoSelect.innerHTML = '<option value="" disabled selected>Cargando préstamos…</option>';
+    pagoCantidadLabel.textContent = 'Cantidad';
+    mostrarVista(vistaPago);
+
+    Promise.all([
+      FonhincasAPI.postJson({ accion: 'tiposMovimiento', usuario: sesion.usuario, contrasena: sesion.contrasena }),
+      FonhincasAPI.postJson({ accion: 'listarPrestamosActivos', usuario: sesion.usuario, contrasena: sesion.contrasena })
+    ]).then(function (respuestas) {
+      var rTipos = respuestas[0], rPrestamos = respuestas[1];
+      if (!rTipos.ok) throw new Error(rTipos.error || 'No fue posible cargar los tipos de movimiento.');
+      if (!rPrestamos.ok) throw new Error(rPrestamos.error || 'No fue posible cargar los préstamos activos.');
+
+      tiposMovimiento = rTipos.data.tipos;
+      pagoTipoSelect.innerHTML = '<option value="" disabled selected>Selecciona un tipo</option>' +
+        tiposMovimiento.map(function (t) {
+          return '<option value="' + escapeHtml(t.tipo) + '">' + escapeHtml(t.tipo) + ' (' + (t.signo === '-' ? 'resta' : 'suma') + ')</option>';
+        }).join('');
+
+      var prestamos = rPrestamos.data.prestamos;
+      pagoPrestamoSelect.innerHTML = prestamos.length
+        ? '<option value="" disabled selected>Selecciona un préstamo</option>' +
+          prestamos.map(function (p) {
+            return '<option value="' + p.idPrestamo + '">N.º ' + p.idPrestamo + ' — ' + escapeHtml(p.nombre) + ' (' + moneyFmt.format(p.monto) + ')</option>';
+          }).join('')
+        : '<option value="" disabled selected>No hay préstamos activos</option>';
+    }).catch(function (err) {
+      pagoError.textContent = err.message;
+      pagoError.hidden = false;
+    });
+  }
+
+  pagoTipoSelect.addEventListener('change', function () {
+    var info = tiposMovimiento.filter(function (t) { return t.tipo === pagoTipoSelect.value; })[0];
+    pagoCantidadLabel.textContent = info ? 'Cantidad (debe ser ' + (info.signo === '-' ? 'negativa' : 'positiva') + ')' : 'Cantidad';
+  });
+
+  pagoForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    pagoError.hidden = true;
+    pagoNota.hidden = true;
+
+    var info = tiposMovimiento.filter(function (t) { return t.tipo === pagoTipoSelect.value; })[0];
+    var cantidad = parseFloat(pagoCantidadInput.value);
+
+    if (!pagoTipoSelect.value || !pagoPrestamoSelect.value || !pagoCantidadInput.value || !pagoForm.comentarios.value.trim()) {
+      pagoError.textContent = 'Todos los campos son obligatorios.';
+      pagoError.hidden = false;
+      return;
+    }
+    if (isNaN(cantidad) || cantidad === 0) {
+      pagoError.textContent = 'La cantidad debe ser un número distinto de 0.';
+      pagoError.hidden = false;
+      return;
+    }
+    if (info && info.signo === '-' && cantidad > 0) {
+      pagoError.textContent = 'Para "' + info.tipo + '" la cantidad debe ser negativa.';
+      pagoError.hidden = false;
+      return;
+    }
+    if (info && info.signo === '+' && cantidad < 0) {
+      pagoError.textContent = 'Para "' + info.tipo + '" la cantidad debe ser positiva.';
+      pagoError.hidden = false;
+      return;
+    }
+
+    pagoSubmit.disabled = true;
+    pagoSubmit.textContent = 'Guardando…';
+
+    FonhincasAPI.postJson({
+      accion: 'registrarMovimiento',
+      usuario: sesion.usuario,
+      contrasena: sesion.contrasena,
+      tipo: pagoTipoSelect.value,
+      idPrestamo: pagoPrestamoSelect.value,
+      cantidad: cantidad,
+      comentarios: pagoForm.comentarios.value.trim()
+    })
+      .then(function (json) {
+        if (!json.ok) throw new Error(json.error || 'No fue posible registrar el movimiento.');
+        pagoNota.textContent = 'Movimiento N.º ' + json.data.id + ' registrado para ' + json.data.nombre + '.';
+        pagoNota.hidden = false;
+        pagoForm.reset();
+        pagoCantidadLabel.textContent = 'Cantidad';
+      })
+      .catch(function (err) {
+        pagoError.textContent = err.message;
+        pagoError.hidden = false;
+      })
+      .finally(function () {
+        pagoSubmit.disabled = false;
+        pagoSubmit.textContent = 'Registrar movimiento';
       });
   });
 
