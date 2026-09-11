@@ -10,13 +10,16 @@
   var vistaPago = document.getElementById('vistaPago');
   var vistaLista = document.getElementById('vistaLista');
   var vistaCierre = document.getElementById('vistaCierre');
+  var vistaMora = document.getElementById('vistaMora');
+  var vistaCalendario = document.getElementById('vistaCalendario');
   var vistaDetalle = document.getElementById('vistaDetalle');
 
-  var moneyFmt = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
-  var moneyFmt2 = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 2 });
+  var moneyFmt = FonhincasFormat.moneyFmt;
+  var moneyFmt2 = FonhincasFormat.moneyFmt2;
+  var escapeHtml = FonhincasFormat.escapeHtml;
 
   function mostrarVista(vista) {
-    [vistaLogin, vistaMenu, vistaPago, vistaLista, vistaCierre, vistaDetalle].forEach(function (v) { v.hidden = (v !== vista); });
+    [vistaLogin, vistaMenu, vistaPago, vistaLista, vistaCierre, vistaMora, vistaCalendario, vistaDetalle].forEach(function (v) { v.hidden = (v !== vista); });
   }
 
   function salir() {
@@ -48,6 +51,7 @@
         loginForm.reset();
         mostrarVista(vistaMenu);
         actualizarBadgeCierre();
+        actualizarBadgeMora();
       })
       .catch(function (err) {
         loginError.textContent = err.message;
@@ -66,13 +70,18 @@
   document.getElementById('btnIrPago').addEventListener('click', abrirPago);
   document.getElementById('btnIrSolicitudes').addEventListener('click', cargarLista);
   document.getElementById('btnIrCierre').addEventListener('click', cargarCierre);
+  document.getElementById('btnIrMora').addEventListener('click', cargarMora);
+  document.getElementById('btnIrCalendario').addEventListener('click', cargarCalendario);
   document.getElementById('btnVolverMenuPago').addEventListener('click', volverAlMenu);
   document.getElementById('btnVolverMenuLista').addEventListener('click', volverAlMenu);
   document.getElementById('btnVolverMenuCierre').addEventListener('click', volverAlMenu);
+  document.getElementById('btnVolverMenuMora').addEventListener('click', volverAlMenu);
+  document.getElementById('btnVolverMenuCalendario').addEventListener('click', volverAlMenu);
 
   function volverAlMenu() {
     mostrarVista(vistaMenu);
     actualizarBadgeCierre();
+    actualizarBadgeMora();
   }
 
   function actualizarBadgeCierre() {
@@ -80,6 +89,17 @@
     FonhincasAPI.postJson({ accion: 'listarPrestamosPorCerrar', usuario: sesion.usuario, contrasena: sesion.contrasena })
       .then(function (json) {
         var n = json.ok ? json.data.prestamos.length : 0;
+        badge.textContent = n;
+        badge.hidden = n === 0;
+      })
+      .catch(function () { badge.hidden = true; });
+  }
+
+  function actualizarBadgeMora() {
+    var badge = document.getElementById('badgeMora');
+    FonhincasAPI.postJson({ accion: 'listarPrestamosConEstado', usuario: sesion.usuario, contrasena: sesion.contrasena })
+      .then(function (json) {
+        var n = json.ok ? json.data.prestamos.filter(function (p) { return p.estado === 'MORA'; }).length : 0;
         badge.textContent = n;
         badge.hidden = n === 0;
       })
@@ -129,11 +149,17 @@
   var detalleError = document.getElementById('detalleError');
   var detalleNota = document.getElementById('detalleNota');
   var detalleSubmit = document.getElementById('detalleSubmit');
+  var dMontoInput = document.getElementById('dMontoInput');
+  var dCuotasInput = document.getElementById('dCuotasInput');
+  var dAjusteNota = document.getElementById('dAjusteNota');
   var filaActual = null;
+  var detalleOriginal = null;
+  var recalcularTimeout = null;
 
   function abrirDetalle(fila) {
     detalleError.hidden = true;
     detalleNota.hidden = true;
+    ocultarPanelRechazo();
     mostrarVista(vistaDetalle);
     document.getElementById('dTablaWrap').innerHTML = '<p class="list-empty">Cargando…</p>';
 
@@ -141,6 +167,7 @@
       .then(function (json) {
         if (!json.ok) throw new Error(json.error || 'No fue posible cargar la solicitud.');
         filaActual = fila;
+        detalleOriginal = json.data;
         renderDetalle(json.data);
         prepararFirma();
         resetearAnexo2();
@@ -157,31 +184,102 @@
     document.getElementById('dNombre').textContent = d.nombre;
     document.getElementById('dCorreo').textContent = d.correo;
     document.getElementById('dServicio').textContent = d.servicio;
-    document.getElementById('dMonto').textContent = moneyFmt.format(d.monto);
-    document.getElementById('dCuotas').textContent = d.cuotas;
+    dMontoInput.value = d.monto;
+    dCuotasInput.value = d.cuotas;
     document.getElementById('dCuota').textContent = moneyFmt2.format(d.cuota);
     document.getElementById('dTasa').textContent = (d.tasa * 100).toFixed(2) + '%';
     document.getElementById('dFechaPago').textContent = d.fechaPago;
     detalleForm.observaciones.value = '';
+    actualizarAjusteNota(d);
 
-    var rows = d.tabla.map(function (r) {
-      return '<tr>' +
-        '<td>' + r.mes + '</td>' +
-        '<td>' + moneyFmt.format(r.saldoInicial) + '</td>' +
-        '<td>' + moneyFmt2.format(r.cuota) + '</td>' +
-        '<td>' + moneyFmt2.format(r.interes) + '</td>' +
-        '<td>' + moneyFmt2.format(r.abonoCapital) + '</td>' +
-        '<td>' + moneyFmt.format(r.saldoFinal) + '</td>' +
-        '</tr>';
-    }).join('');
-
-    document.getElementById('dTablaWrap').innerHTML =
-      '<div class="table-wrap__scroll"><table class="amort">' +
-      '<thead><tr><th>Mes</th><th>Saldo inicial</th><th>Cuota</th><th>Interés</th><th>Abono capital</th><th>Saldo final</th></tr></thead>' +
-      '<tbody>' + rows + '</tbody></table></div>';
+    document.getElementById('dTablaWrap').innerHTML = FonhincasFormat.tablaAmortizacion(d.tabla);
   }
 
+  function actualizarAjusteNota(d) {
+    if (d.monto !== d.montoOriginal || d.cuotas !== d.cuotasOriginal) {
+      dAjusteNota.textContent = 'Ajustaste la solicitud original (monto: ' + moneyFmt.format(d.montoOriginal) +
+        ', cuotas: ' + d.cuotasOriginal + '). El correo y el PDF incluirán esta nota.';
+      dAjusteNota.hidden = false;
+    } else {
+      dAjusteNota.hidden = true;
+    }
+  }
+
+  function recalcularVistaPrevia() {
+    var monto = parseFloat(dMontoInput.value);
+    var cuotas = parseInt(dCuotasInput.value, 10);
+    if (!filaActual || isNaN(monto) || monto <= 0 || isNaN(cuotas) || cuotas <= 0) return;
+
+    FonhincasAPI.postJson({
+      accion: 'detalleSolicitud', usuario: sesion.usuario, contrasena: sesion.contrasena,
+      fila: filaActual, monto: monto, cuotas: cuotas
+    }).then(function (json) {
+      if (!json.ok) return;
+      detalleOriginal = json.data;
+      document.getElementById('dCuota').textContent = moneyFmt2.format(json.data.cuota);
+      document.getElementById('dTablaWrap').innerHTML = FonhincasFormat.tablaAmortizacion(json.data.tabla);
+      actualizarAjusteNota(json.data);
+    });
+  }
+
+  [dMontoInput, dCuotasInput].forEach(function (input) {
+    input.addEventListener('input', function () {
+      clearTimeout(recalcularTimeout);
+      recalcularTimeout = setTimeout(recalcularVistaPrevia, 500);
+    });
+  });
+
   document.getElementById('btnVolver').addEventListener('click', cargarLista);
+
+  // ---------- Rechazar solicitud ----------
+
+  var rechazoPanel = document.getElementById('rechazoPanel');
+  var rechazoMotivo = document.getElementById('rechazoMotivo');
+  var rechazoError = document.getElementById('rechazoError');
+  var btnConfirmarRechazo = document.getElementById('btnConfirmarRechazo');
+
+  function ocultarPanelRechazo() {
+    rechazoPanel.hidden = true;
+    rechazoMotivo.value = '';
+    rechazoError.hidden = true;
+  }
+
+  document.getElementById('btnAbrirRechazo').addEventListener('click', function () {
+    rechazoError.hidden = true;
+    rechazoPanel.hidden = false;
+  });
+
+  document.getElementById('btnCancelarRechazo').addEventListener('click', ocultarPanelRechazo);
+
+  btnConfirmarRechazo.addEventListener('click', function () {
+    var motivo = rechazoMotivo.value.trim();
+    if (!motivo) {
+      rechazoError.textContent = 'Debes indicar el motivo del rechazo.';
+      rechazoError.hidden = false;
+      return;
+    }
+
+    btnConfirmarRechazo.disabled = true;
+    btnConfirmarRechazo.textContent = 'Rechazando…';
+
+    FonhincasAPI.postJson({
+      accion: 'rechazarSolicitud', usuario: sesion.usuario, contrasena: sesion.contrasena,
+      fila: filaActual, motivo: motivo
+    })
+      .then(function (json) {
+        if (!json.ok) throw new Error(json.error || 'No fue posible rechazar la solicitud.');
+        ocultarPanelRechazo();
+        cargarLista();
+      })
+      .catch(function (err) {
+        rechazoError.textContent = err.message;
+        rechazoError.hidden = false;
+      })
+      .finally(function () {
+        btnConfirmarRechazo.disabled = false;
+        btnConfirmarRechazo.textContent = 'Confirmar rechazo';
+      });
+  });
 
   // ---------- Firma ----------
 
@@ -289,6 +387,14 @@
       return;
     }
 
+    var monto = parseFloat(dMontoInput.value);
+    var cuotas = parseInt(dCuotasInput.value, 10);
+    if (isNaN(monto) || monto <= 0 || isNaN(cuotas) || cuotas <= 0) {
+      detalleError.textContent = 'Monto y número de cuotas deben ser valores válidos.';
+      detalleError.hidden = false;
+      return;
+    }
+
     detalleSubmit.disabled = true;
     detalleSubmit.textContent = 'Guardando…';
 
@@ -297,6 +403,8 @@
       usuario: sesion.usuario,
       contrasena: sesion.contrasena,
       fila: filaActual,
+      monto: monto,
+      cuotas: cuotas,
       observaciones: detalleForm.observaciones.value,
       firma: canvas.toDataURL('image/png'),
       fotoDesembolso: fotoDataUrl
@@ -487,9 +595,112 @@
       });
   }
 
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
+  // ---------- Préstamos en mora ----------
+
+  var listaMoraEl = document.getElementById('listaMora');
+
+  function cargarMora() {
+    listaMoraEl.innerHTML = '<p class="list-empty">Cargando…</p>';
+    mostrarVista(vistaMora);
+
+    FonhincasAPI.postJson({ accion: 'listarPrestamosConEstado', usuario: sesion.usuario, contrasena: sesion.contrasena })
+      .then(function (json) {
+        if (!json.ok) throw new Error(json.error || 'No fue posible cargar los préstamos en mora.');
+        renderMora(json.data.prestamos.filter(function (p) { return p.estado === 'MORA'; }));
+      })
+      .catch(function (err) {
+        listaMoraEl.innerHTML = '<p class="list-empty">' + err.message + '</p>';
+      });
   }
+
+  function renderMora(prestamos) {
+    if (!prestamos.length) {
+      listaMoraEl.innerHTML = '<p class="list-empty">No hay préstamos en mora.</p>';
+      return;
+    }
+
+    listaMoraEl.innerHTML = prestamos.map(function (p) {
+      return '<div class="card" style="margin-bottom: var(--space-2); border-left: 3px solid var(--c-estado-mora-fg);">' +
+        '<div class="list-item__head"><h3>N.º ' + p.idPrestamo + ' — ' + escapeHtml(p.nombre) + '</h3>' +
+        '<span class="list-item__monto">' + p.diasMora + ' día' + (p.diasMora === 1 ? '' : 's') + ' en mora</span></div>' +
+        '<p>Debe: ' + moneyFmt.format(p.debe) + ' · Siguiente cuota: ' + moneyFmt2.format(p.siguienteCuota) + ' · Vencía: ' + p.fechaProximoPago + '</p>' +
+        '</div>';
+    }).join('');
+  }
+
+  // ---------- Préstamos activos (calendario) ----------
+
+  var MESES_ES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  var DIAS_ES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  var calendarioGrid = document.getElementById('calendarioGrid');
+  var calendarioTitulo = document.getElementById('calendarioTitulo');
+  var prestamosCalendario = [];
+  var calendarioAnio, calendarioMes;
+
+  function cargarCalendario() {
+    var hoy = new Date();
+    calendarioAnio = hoy.getFullYear();
+    calendarioMes = hoy.getMonth();
+    mostrarVista(vistaCalendario);
+    calendarioGrid.innerHTML = '<p class="list-empty">Cargando…</p>';
+
+    FonhincasAPI.postJson({ accion: 'listarPrestamosConEstado', usuario: sesion.usuario, contrasena: sesion.contrasena })
+      .then(function (json) {
+        if (!json.ok) throw new Error(json.error || 'No fue posible cargar los préstamos activos.');
+        prestamosCalendario = json.data.prestamos;
+        renderCalendario();
+      })
+      .catch(function (err) {
+        calendarioGrid.innerHTML = '<p class="list-empty">' + err.message + '</p>';
+      });
+  }
+
+  function renderCalendario() {
+    calendarioTitulo.textContent = MESES_ES[calendarioMes] + ' de ' + calendarioAnio;
+
+    var primerDia = new Date(calendarioAnio, calendarioMes, 1);
+    var totalDias = new Date(calendarioAnio, calendarioMes + 1, 0).getDate();
+    var offsetInicio = primerDia.getDay();
+
+    var porDia = {};
+    prestamosCalendario.forEach(function (p) {
+      if (!p.fechaProximoPago) return;
+      var partes = p.fechaProximoPago.split('-');
+      var anio = parseInt(partes[0], 10), mes = parseInt(partes[1], 10) - 1, dia = parseInt(partes[2], 10);
+      if (anio !== calendarioAnio || mes !== calendarioMes) return;
+      (porDia[dia] || (porDia[dia] = [])).push(p);
+    });
+
+    var celdas = DIAS_ES.map(function (d) { return '<div class="calendar-day-header">' + d + '</div>'; }).join('');
+
+    for (var i = 0; i < offsetInicio; i++) {
+      celdas += '<div class="calendar-cell calendar-cell--fuera"></div>';
+    }
+
+    for (var dia = 1; dia <= totalDias; dia++) {
+      var chips = (porDia[dia] || []).map(function (p) {
+        var clase = p.estado === 'MORA' ? 'mora' : 'activo';
+        var texto = p.estado === 'MORA'
+          ? escapeHtml(p.nombre) + ' — ' + p.diasMora + 'd mora'
+          : escapeHtml(p.nombre) + ' — faltan ' + p.diasParaPago + 'd';
+        return '<span class="calendar-chip ' + clase + '" title="N.º ' + p.idPrestamo + ' — ' + escapeHtml(p.nombre) + '">' + texto + '</span>';
+      }).join('');
+      celdas += '<div class="calendar-cell"><div class="calendar-cell__dia">' + dia + '</div>' + chips + '</div>';
+    }
+
+    calendarioGrid.innerHTML = celdas;
+  }
+
+  document.getElementById('btnMesAnterior').addEventListener('click', function () {
+    calendarioMes--;
+    if (calendarioMes < 0) { calendarioMes = 11; calendarioAnio--; }
+    renderCalendario();
+  });
+
+  document.getElementById('btnMesSiguiente').addEventListener('click', function () {
+    calendarioMes++;
+    if (calendarioMes > 11) { calendarioMes = 0; calendarioAnio++; }
+    renderCalendario();
+  });
+
 })();

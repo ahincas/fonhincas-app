@@ -21,6 +21,10 @@ var PRESTAMOS_HEADERS = [
 var SOLICITUD_HEADERS = [
   'Marca temporal', 'Nombre', 'Correo', 'Fecha', 'Servicio', 'Monto', 'Cuotas', 'Link de pago', 'Banco', 'Cuenta o llave', 'Estado'
 ];
+var HOJA_RECHAZADAS = 'SOLICITUDES_RECHAZADAS';
+var RECHAZADAS_HEADERS = [
+  'Fecha rechazo', 'Administrador', 'Nombre', 'Correo', 'Fecha solicitud', 'Servicio', 'Monto', 'Cuotas', 'Motivo'
+];
 
 /**
  * ---------- Rendimiento ----------
@@ -100,6 +104,30 @@ function leerConfiguracion_() {
   return config;
 }
 
+/**
+ * IDs consecutivos de préstamo y movimiento, con un contador persistente (PropertiesService) en vez
+ * de "cuántas filas hay ahora" (getLastRow()). Esto es necesario porque PRESTAMOS_ACTIVOS SÍ borra
+ * filas al cerrar un préstamo (cerrarPrestamo_), así que contar filas podía asignar un ID ya usado
+ * por otro préstamo todavía activo. LockService evita que dos aprobaciones casi simultáneas lean el
+ * mismo valor antes de que ninguna lo incremente.
+ */
+function siguienteId_(propKey, valorInicial) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var actual = props.getProperty(propKey);
+    var siguiente = actual === null ? valorInicial : parseInt(actual, 10);
+    props.setProperty(propKey, String(siguiente + 1));
+    return siguiente;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function siguienteIdPrestamo_() { return siguienteId_('PROXIMO_ID_PRESTAMO', 1); }
+function siguienteIdMovimiento_() { return siguienteId_('PROXIMO_ID_MOVIMIENTO', 0); }
+
 /** Ejecuta esta función manualmente una vez desde el editor para autorizar los permisos (hoja de cálculo, correo, calendario y Drive/Docs). */
 function autorizarPermisos() {
   getServiciosDisponibles_();
@@ -160,9 +188,11 @@ function doPost(e) {
         return jsonResponse_({ ok: true, data: { solicitudes: listarSolicitudes_() } });
       case 'detalleSolicitud':
         validarAdmin_(body.usuario, body.contrasena);
-        return jsonResponse_({ ok: true, data: detalleSolicitud_(parseInt(body.fila, 10)) });
+        return jsonResponse_({ ok: true, data: detalleSolicitud_(parseInt(body.fila, 10), body.monto, body.cuotas) });
       case 'guardarPrestamo':
         return jsonResponse_({ ok: true, data: guardarPrestamo_(body) });
+      case 'rechazarSolicitud':
+        return jsonResponse_({ ok: true, data: rechazarSolicitud_(body) });
       case 'tiposMovimiento':
         validarAdmin_(body.usuario, body.contrasena);
         return jsonResponse_({ ok: true, data: { tipos: getTiposMovimiento_() } });
@@ -174,6 +204,8 @@ function doPost(e) {
       case 'listarPrestamosPorCerrar':
         validarAdmin_(body.usuario, body.contrasena);
         return jsonResponse_({ ok: true, data: { prestamos: listarPrestamosPorCerrar_() } });
+      case 'listarPrestamosConEstado':
+        return jsonResponse_({ ok: true, data: { prestamos: listarPrestamosConEstadoDetallado_(body) } });
       case 'cerrarPrestamo':
         return jsonResponse_({ ok: true, data: cerrarPrestamo_(body) });
       case 'limpiarDatosPrueba':
@@ -271,21 +303,24 @@ function listarSolicitudes_() {
 }
 
 /** Calcula, para una solicitud puntual, la cuota, la tabla de amortización y la fecha de pago sugerida. */
-function detalleSolicitud_(fila) {
+function detalleSolicitud_(fila, montoOverride, cuotasOverride) {
   var sheet = getOCrearHojaSolicitudes_();
   if (!(fila >= 2)) throw new Error('Solicitud inválida.');
   var datos = sheet.getRange(fila, 1, 1, SOLICITUD_HEADERS.length).getValues()[0];
   if (!datos[1]) throw new Error('La solicitud ya no existe (puede que ya haya sido procesada).');
 
   var nombre = datos[1], correo = datos[2], fechaSolicitud = formatearFechaCelda_(datos[3]), servicio = datos[4];
-  var monto = Number(datos[5]), cuotas = Number(datos[6]);
+  var montoOriginal = Number(datos[5]), cuotasOriginal = Number(datos[6]);
+  var monto = (montoOverride !== undefined && montoOverride !== null && montoOverride !== '') ? Number(montoOverride) : montoOriginal;
+  var cuotas = (cuotasOverride !== undefined && cuotasOverride !== null && cuotasOverride !== '') ? parseInt(cuotasOverride, 10) : cuotasOriginal;
   var tasa = getTasaMensual_();
   var sim = simularPorPlazo_(monto, tasa, cuotas);
   var hoy = Utilities.formatDate(new Date(), ZONA_HORARIA, 'yyyy-MM-dd');
 
   return {
     fila: fila, nombre: nombre, correo: correo, fechaSolicitud: fechaSolicitud, servicio: servicio,
-    monto: monto, cuotas: cuotas, tasa: tasa, cuota: sim.cuota, tabla: sim.tabla,
+    monto: monto, cuotas: cuotas, montoOriginal: montoOriginal, cuotasOriginal: cuotasOriginal,
+    tasa: tasa, cuota: sim.cuota, tabla: sim.tabla,
     fechaRevision: hoy, fechaPago: calcularFechaPago_(hoy)
   };
 }
@@ -337,7 +372,7 @@ function guardarPrestamo_(body) {
   validarAdmin_(body.usuario, body.contrasena);
 
   var fila = parseInt(body.fila, 10);
-  var detalle = detalleSolicitud_(fila);
+  var detalle = detalleSolicitud_(fila, body.monto, body.cuotas);
   var observaciones = body.observaciones ? String(body.observaciones).trim() : '';
 
   if (!body.firma) throw new Error('La firma es obligatoria.');
@@ -346,13 +381,19 @@ function guardarPrestamo_(body) {
 
   var administrador = String(body.usuario).trim();
   var hojaPrestamos = getOCrearHojaPrestamos_();
-  var idPrestamo = hojaPrestamos.getLastRow(); // fila 1 = encabezado, así que el conteo de filas existentes ya es el siguiente id
+  var idPrestamo = siguienteIdPrestamo_();
+
+  var notaAjuste = '';
+  if (detalle.monto !== detalle.montoOriginal || detalle.cuotas !== detalle.cuotasOriginal) {
+    notaAjuste = 'El administrador ajustó la solicitud original (monto: ' + detalle.montoOriginal +
+      ', cuotas: ' + detalle.cuotasOriginal + ') a monto: ' + detalle.monto + ', cuotas: ' + detalle.cuotas + '.';
+  }
 
   var pdf = generarPdfPrestamo_({
     idPrestamo: idPrestamo, administrador: administrador, fechaRevision: detalle.fechaRevision,
     nombre: detalle.nombre, servicio: detalle.servicio, monto: detalle.monto, cuotas: detalle.cuotas,
     cuota: detalle.cuota, tasa: detalle.tasa, fechaPago: detalle.fechaPago, observaciones: observaciones,
-    tabla: detalle.tabla, firmaBlob: firmaBlob, fotoBlob: fotoBlob
+    tabla: detalle.tabla, firmaBlob: firmaBlob, fotoBlob: fotoBlob, notaAjuste: notaAjuste
   });
 
   var carpeta = getOCrearCarpetaRespaldosMes_();
@@ -386,12 +427,68 @@ function guardarPrestamo_(body) {
   }
 
   try {
-    if (detalle.correo) notificarAprobacion_(detalle.correo, detalle.nombre, pdf, nombreArchivo);
+    if (detalle.correo) notificarAprobacion_(detalle.correo, detalle.nombre, pdf, nombreArchivo, notaAjuste);
   } catch (err) {
     // El préstamo ya quedó guardado; un fallo al enviar el correo no debe invalidar la aprobación.
   }
 
   return { idPrestamo: idPrestamo, pdfUrl: archivoPdf.getUrl() };
+}
+
+/** Rechaza una solicitud pendiente: la registra en SOLICITUDES_RECHAZADAS con el motivo, la borra de SOLICITUD y notifica al correo. */
+function rechazarSolicitud_(body) {
+  validarAdmin_(body.usuario, body.contrasena);
+
+  var fila = parseInt(body.fila, 10);
+  var motivo = String(body.motivo || '').trim();
+  if (!motivo) throw new Error('Debes indicar el motivo del rechazo.');
+
+  var sheet = getOCrearHojaSolicitudes_();
+  if (!(fila >= 2)) throw new Error('Solicitud inválida.');
+  var datos = sheet.getRange(fila, 1, 1, SOLICITUD_HEADERS.length).getValues()[0];
+  if (!datos[1]) throw new Error('La solicitud ya no existe (puede que ya haya sido procesada).');
+
+  var nombre = datos[1], correo = datos[2], fechaSolicitud = formatearFechaCelda_(datos[3]), servicio = datos[4];
+  var monto = datos[5], cuotas = datos[6];
+  var administrador = String(body.usuario).trim();
+  var hoy = Utilities.formatDate(new Date(), ZONA_HORARIA, 'yyyy-MM-dd');
+
+  getOCrearHojaRechazadas_().appendRow([hoy, administrador, nombre, correo, fechaSolicitud, servicio, monto, cuotas, motivo]);
+  sheet.deleteRow(fila);
+
+  try {
+    if (correo) notificarRechazo_(correo, nombre, motivo);
+  } catch (err) {
+    // La solicitud ya quedó registrada como rechazada; un fallo al notificar no debe invalidar la acción.
+  }
+
+  return { nombre: nombre };
+}
+
+/** Obtiene la hoja SOLICITUDES_RECHAZADAS, creándola (o migrando encabezados, si está vacía). */
+function getOCrearHojaRechazadas_() {
+  var libro = getLibro_();
+  var sheet = libro.getSheetByName(HOJA_RECHAZADAS);
+  if (!sheet) {
+    sheet = libro.insertSheet(HOJA_RECHAZADAS);
+    sheet.appendRow(RECHAZADAS_HEADERS);
+    sheet.setFrozenRows(1);
+  } else if (sheet.getLastRow() <= 1) {
+    sheet.getRange(1, 1, 1, RECHAZADAS_HEADERS.length).setValues([RECHAZADAS_HEADERS]);
+  }
+  return sheet;
+}
+
+/** Notifica al correo del solicitante que su solicitud no fue aprobada, con el motivo indicado por el administrador. */
+function notificarRechazo_(correo, nombre, motivo) {
+  var asunto = 'Sobre tu solicitud de préstamo — FONHINCAS';
+  var cuerpo = 'Hola ' + nombre + ',\n\n' +
+    'Gracias por tu interés en FONHINCAS. Después de revisar tu solicitud, lamentamos informarte que en esta ocasión no fue aprobada.\n\n' +
+    'Motivo: ' + motivo + '\n\n' +
+    'Si tienes preguntas, no dudes en contactarnos.\n\n' +
+    '— FONHINCAS';
+
+  MailApp.sendEmail(correo, asunto, cuerpo);
 }
 
 /** Crea un evento de todo el día por cada cuota, uno por mes, empezando en la fecha de la primera cuota. */
@@ -410,12 +507,13 @@ function crearEventosCuotasPrestamo_(idPrestamo, nombre, cuotas, valorCuota, fec
 }
 
 /** Envía al correo del solicitante la notificación de aprobación, con el PDF del préstamo adjunto. */
-function notificarAprobacion_(correo, nombre, pdfBlob, nombreArchivo) {
+function notificarAprobacion_(correo, nombre, pdfBlob, nombreArchivo, notaAjuste) {
   var asunto = '¡Tu préstamo fue aprobado! — FONHINCAS';
   var cuerpo = 'Hola ' + nombre + ',\n\n' +
     '¡Felicidades por hacer parte de nuestra familia! Tu préstamo fue aprobado y el dinero ya fue desembolsado. ' +
     'Próximamente se verá reflejado en el medio que elegiste.\n\n' +
     'Puedes consultar los detalles en el documento adjunto o en nuestra página web, en la función "Consultar".\n\n' +
+    (notaAjuste ? 'Nota: ' + notaAjuste + '\n\n' : '') +
     '— FONHINCAS';
 
   MailApp.sendEmail({
@@ -442,6 +540,7 @@ function generarPdfPrestamo_(d) {
   body.appendParagraph('Tasa de interés mensual: ' + (d.tasa * 100).toFixed(2) + '%');
   body.appendParagraph('Fecha de pago: ' + d.fechaPago);
   body.appendParagraph('Observaciones: ' + (d.observaciones || '—'));
+  if (d.notaAjuste) body.appendParagraph('Nota: ' + d.notaAjuste);
 
   body.appendParagraph('Anexo 1 — Tabla de amortización').setHeading(DocumentApp.ParagraphHeading.HEADING2);
   var filas = [['Mes', 'Saldo inicial', 'Cuota', 'Interés', 'Abono capital', 'Saldo final']];
@@ -491,13 +590,21 @@ function getOCrearCarpetaHija_(padre, nombre) {
 
 /** Solo desarrollo: vacía las filas de datos de SOLICITUD, PRESTAMOS_ACTIVOS y MOVIMIENTOS (conserva encabezados). */
 function limpiarDatosPrueba_() {
-  var hojas = [getOCrearHojaSolicitudes_(), getOCrearHojaPrestamos_(), getOCrearHojaMovimientos_(), getOCrearHojaHistorial_()];
+  var hojas = [
+    getOCrearHojaSolicitudes_(), getOCrearHojaPrestamos_(), getOCrearHojaMovimientos_(),
+    getOCrearHojaHistorial_(), getOCrearHojaRechazadas_()
+  ];
   var limpiadas = [];
   hojas.forEach(function (sheet) {
     var filas = sheet.getLastRow() - 1;
     if (filas > 0) sheet.deleteRows(2, filas);
     limpiadas.push(sheet.getName());
   });
+
+  var props = PropertiesService.getScriptProperties();
+  props.deleteProperty('PROXIMO_ID_PRESTAMO');
+  props.deleteProperty('PROXIMO_ID_MOVIMIENTO');
+
   return { limpiadas: limpiadas };
 }
 
@@ -533,10 +640,13 @@ function forzarFormatoNumericoPrestamos_(sheet) {
 function getOCrearHojaHistorial_() {
   var libro = getLibro_();
   var sheet = libro.getSheetByName(HOJA_HISTORIAL);
+  var headers = PRESTAMOS_HEADERS.concat(['Fecha de cierre']);
   if (!sheet) {
     sheet = libro.insertSheet(HOJA_HISTORIAL);
-    sheet.appendRow(PRESTAMOS_HEADERS.concat(['Fecha de cierre']));
+    sheet.appendRow(headers);
     sheet.setFrozenRows(1);
+  } else if (sheet.getLastRow() <= 1) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   }
   return sheet;
 }
@@ -700,6 +810,42 @@ function consultarPrestamos_(usuarioFiltro, estadoFiltro) {
   return resultados;
 }
 
+/** Días de diferencia entre dos fechas 'yyyy-MM-dd' (mayor - menor). Puede ser negativo si mayor es anterior a menor. */
+function diasEntre_(fechaMenorStr, fechaMayorStr) {
+  var msPorDia = 24 * 60 * 60 * 1000;
+  var a = new Date(fechaMenorStr + 'T00:00:00');
+  var b = new Date(fechaMayorStr + 'T00:00:00');
+  return Math.round((b.getTime() - a.getTime()) / msPorDia);
+}
+
+/**
+ * Lista (solo admin) los préstamos ACTIVO/MORA/POR_CERRAR enriquecidos con su fecha de próxima cuota y,
+ * según corresponda, días de mora o días que faltan para el pago. Base tanto para la vista de mora como
+ * para el calendario de préstamos activos.
+ */
+function listarPrestamosConEstadoDetallado_(body) {
+  validarAdmin_(body.usuario, body.contrasena);
+  var hoy = Utilities.formatDate(new Date(), ZONA_HORARIA, 'yyyy-MM-dd');
+
+  return listarPrestamosActivos_().filter(function (p) {
+    return p.estado === 'ACTIVO' || p.estado === 'POR_CERRAR';
+  }).map(function (p) {
+    var estadoReal = p.estado;
+    var calc = { fechaProximoPago: null, enMora: false };
+    if (p.estado === 'ACTIVO') {
+      calc = calcularProximaCuota_(p);
+      estadoReal = calc.enMora ? 'MORA' : 'ACTIVO';
+    }
+    var diasMora = calc.enMora ? diasEntre_(calc.fechaProximoPago, hoy) : 0;
+    var diasParaPago = (!calc.enMora && calc.fechaProximoPago) ? diasEntre_(hoy, calc.fechaProximoPago) : null;
+    return {
+      idPrestamo: p.idPrestamo, nombre: p.nombre, monto: p.monto, cuotas: p.cuotas,
+      cuotasFaltan: p.cuotasFaltan, pagado: p.pagado, debe: p.debe, siguienteCuota: p.siguienteCuota,
+      estado: estadoReal, fechaProximoPago: calc.fechaProximoPago, diasMora: diasMora, diasParaPago: diasParaPago
+    };
+  });
+}
+
 /** Ubica la fila (1-indexada) de un préstamo por su ID en PRESTAMOS_ACTIVOS. */
 function getFilaPrestamoPorId_(idPrestamo) {
   var data = getOCrearHojaPrestamos_().getDataRange().getValues();
@@ -732,7 +878,7 @@ function recalcularPrestamo_(idPrestamo, filaConocida) {
   pagado = redondear_(pagado);
 
   var debe = Math.max(0, redondear_(montoTotalAPagar - pagado));
-  var cuotasFaltan = valorCuota > 0 ? Math.min(cuotas, Math.ceil(debe / valorCuota)) : 0;
+  var cuotasFaltan = valorCuota > 0 ? Math.min(cuotas, Math.max(0, Math.ceil((debe - 0.01) / valorCuota))) : 0;
   var siguienteCuota = debe <= 0 ? 0 : redondear_(Math.min(valorCuota, debe));
   var estado = debe <= UMBRAL_CIERRE ? 'POR_CERRAR' : 'ACTIVO';
 
@@ -797,7 +943,7 @@ function registrarMovimiento_(body) {
 /** Agrega una fila a MOVIMIENTOS con ID consecutivo (desde 0) y fecha automáticos. */
 function insertarMovimiento_(tipo, idPrestamo, nombre, cantidad, comentarios) {
   var sheet = getOCrearHojaMovimientos_();
-  var nuevoId = sheet.getLastRow() - 1; // encabezado en fila 1; los ids empiezan en 0
+  var nuevoId = siguienteIdMovimiento_();
   var hoy = Utilities.formatDate(new Date(), ZONA_HORARIA, 'yyyy-MM-dd');
 
   sheet.appendRow([nuevoId, hoy, tipo, idPrestamo, nombre, cantidad, comentarios]);

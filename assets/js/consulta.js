@@ -6,8 +6,9 @@
   var resultadosEl = document.getElementById('consultaResultados');
   var submitBtn = form.querySelector('button[type="submit"]');
 
-  var moneyFmt = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
-  var moneyFmt2 = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 2 });
+  var moneyFmt = FonhincasFormat.moneyFmt;
+  var moneyFmt2 = FonhincasFormat.moneyFmt2;
+  var escapeHtml = FonhincasFormat.escapeHtml;
 
   var ESTADO_LABEL = {
     SOLICITUD: 'Solicitud',
@@ -125,11 +126,5 @@
       '<div class="table-wrap" style="margin-top: var(--space-2);"><div class="table-wrap__scroll"><table class="amort">' +
       '<thead><tr><th>Fecha</th><th>Tipo</th><th>Cantidad</th><th>Comentarios</th></tr></thead>' +
       '<tbody>' + filas + '</tbody></table></div></div></details>';
-  }
-
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
   }
 })();

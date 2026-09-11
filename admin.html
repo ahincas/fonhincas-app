@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/styles.css?v=0.11" />
+  <link rel="stylesheet" href="assets/css/styles.css?v=0.12" />
 </head>
 <body>
 
@@ -24,7 +24,7 @@
         <a href="solicitud.html">Solicitud</a>
         <a href="consulta.html">Consultar</a>
       </nav>
-      <span class="nav__version">v0.11</span>
+      <span class="nav__version">v0.12</span>
     </div>
   </header>
 
@@ -69,9 +69,17 @@
             <h3>Solicitudes pendientes</h3>
             <p>Revisa y aprueba las solicitudes de préstamo recibidas.</p>
           </div>
-          <div class="card list-item" id="btnIrCierre">
+          <div class="card list-item" id="btnIrCierre" style="margin-bottom: var(--space-2);">
             <h3>Préstamos por cerrar <span class="nav__version" id="badgeCierre" hidden></span></h3>
             <p>Préstamos ya pagados en su totalidad, listos para archivar.</p>
+          </div>
+          <div class="card list-item" id="btnIrMora" style="margin-bottom: var(--space-2);">
+            <h3>Préstamos en mora <span class="nav__version" id="badgeMora" hidden></span></h3>
+            <p>Préstamos activos cuyo pago de cuota ya está vencido.</p>
+          </div>
+          <div class="card list-item" id="btnIrCalendario">
+            <h3>Préstamos activos</h3>
+            <p>Vista de calendario con las fechas de pago de cada préstamo activo.</p>
           </div>
         </div>
 
@@ -124,6 +132,35 @@
           <div id="listaCierre"></div>
         </div>
 
+        <!-- Préstamos en mora -->
+        <div id="vistaMora" hidden>
+          <div class="admin-topbar">
+            <div class="section__head" style="margin:0;">
+              <span class="eyebrow">Administración</span>
+              <h2>Préstamos en mora</h2>
+            </div>
+            <button class="btn btn--ghost" id="btnVolverMenuMora" type="button">Volver al menú</button>
+          </div>
+          <div id="listaMora"></div>
+        </div>
+
+        <!-- Préstamos activos (calendario) -->
+        <div id="vistaCalendario" hidden>
+          <div class="admin-topbar">
+            <div class="section__head" style="margin:0;">
+              <span class="eyebrow">Administración</span>
+              <h2>Préstamos activos</h2>
+            </div>
+            <button class="btn btn--ghost" id="btnVolverMenuCalendario" type="button">Volver al menú</button>
+          </div>
+          <div class="calendar-nav">
+            <button class="btn btn--ghost" id="btnMesAnterior" type="button">‹ Anterior</button>
+            <h3 id="calendarioTitulo"></h3>
+            <button class="btn btn--ghost" id="btnMesSiguiente" type="button">Siguiente ›</button>
+          </div>
+          <div class="calendar-grid" id="calendarioGrid"></div>
+        </div>
+
         <!-- Lista de solicitudes -->
         <div id="vistaLista" hidden>
           <div class="admin-topbar">
@@ -143,7 +180,23 @@
               <span class="eyebrow">Administración</span>
               <h2>Aprobar préstamo</h2>
             </div>
-            <button class="btn btn--ghost" id="btnVolver" type="button">Volver a la lista</button>
+            <div style="display:flex; gap: var(--space-2);">
+              <button class="btn btn--ghost btn--danger" id="btnAbrirRechazo" type="button">Rechazar solicitud</button>
+              <button class="btn btn--ghost" id="btnVolver" type="button">Volver a la lista</button>
+            </div>
+          </div>
+
+          <div class="card rechazo-panel" id="rechazoPanel" hidden style="margin-bottom: var(--space-3);">
+            <h3>Rechazar solicitud</h3>
+            <div class="field" style="margin-top: var(--space-2);">
+              <label for="rechazoMotivo">Motivo (se incluirá en el correo al solicitante)</label>
+              <textarea id="rechazoMotivo" rows="3" required></textarea>
+            </div>
+            <div style="display:flex; gap: var(--space-2); margin-top: var(--space-2);">
+              <button class="btn btn--primary" id="btnConfirmarRechazo" type="button">Confirmar rechazo</button>
+              <button class="btn btn--ghost" id="btnCancelarRechazo" type="button">Cancelar</button>
+            </div>
+            <p class="simulator__error" id="rechazoError" hidden style="margin-top: var(--space-2);"></p>
           </div>
 
           <form class="form-card" id="detalleForm">
@@ -153,12 +206,14 @@
               <div class="kv"><div class="k">Solicitante</div><div class="v" id="dNombre"></div></div>
               <div class="kv"><div class="k">Correo</div><div class="v" id="dCorreo"></div></div>
               <div class="kv"><div class="k">Servicio</div><div class="v" id="dServicio"></div></div>
-              <div class="kv"><div class="k">Monto</div><div class="v" id="dMonto"></div></div>
-              <div class="kv"><div class="k">Número de cuotas</div><div class="v" id="dCuotas"></div></div>
+              <div class="kv"><div class="k">Monto</div><div class="v"><input type="number" class="kv-input" id="dMontoInput" step="any" min="0" /></div></div>
+              <div class="kv"><div class="k">Número de cuotas</div><div class="v"><input type="number" class="kv-input" id="dCuotasInput" step="1" min="1" max="36" /></div></div>
               <div class="kv"><div class="k">Valor de la cuota</div><div class="v" id="dCuota"></div></div>
               <div class="kv"><div class="k">Tasa de interés</div><div class="v" id="dTasa"></div></div>
               <div class="kv"><div class="k">Fecha de pago</div><div class="v" id="dFechaPago"></div></div>
             </div>
+
+            <p class="form-note" id="dAjusteNota" hidden></p>
 
             <div class="field">
               <label for="observaciones">Observaciones (opcional)</label>
@@ -195,7 +250,8 @@
     </section>
   </main>
 
-  <script src="assets/js/api.js?v=0.11"></script>
-  <script src="assets/js/admin.js?v=0.11"></script>
+  <script src="assets/js/api.js?v=0.12"></script>
+  <script src="assets/js/format.js?v=0.12"></script>
+  <script src="assets/js/admin.js?v=0.12"></script>
 </body>
 </html>
