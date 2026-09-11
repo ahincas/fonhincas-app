@@ -1,9 +1,11 @@
 /**
  * Pruebas mínimas para la lógica financiera y de generación de IDs.
- * Ejecutar manualmente desde el editor de Apps Script: función ejecutarPruebas_.
+ * Ejecutar manualmente desde el editor de Apps Script: función ejecutarPruebas.
+ * (Sin guion bajo al final a propósito: Apps Script oculta del selector de funciones
+ * cualquier función cuyo nombre termine en '_', tratándola como privada.)
  * Escribe en Logger; lanza un Error con el resumen de fallos si alguna prueba no pasa.
  */
-function ejecutarPruebas_() {
+function ejecutarPruebas() {
   var resultados = [];
 
   function assert(nombre, condicion) {
@@ -52,7 +54,7 @@ function ejecutarPruebas_() {
   })();
 
   // ---------- calcularFechaPago_ ----------
-  assert('calcularFechaPago_ día <=14 -> 15 del mes siguiente', calcularFechaPago_('2026-03-05') === '2026-03-15');
+  assert('calcularFechaPago_ día <=14 -> 15 del mes siguiente', calcularFechaPago_('2026-03-05') === '2026-04-15');
   assert('calcularFechaPago_ día >14 -> fin del mes siguiente', calcularFechaPago_('2026-03-20') === '2026-04-30');
   assert('calcularFechaPago_ cruza fin de año', calcularFechaPago_('2026-12-20') === '2027-01-31');
 
