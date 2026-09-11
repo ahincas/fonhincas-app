@@ -429,7 +429,10 @@
 
   var pagoForm = document.getElementById('pagoForm');
   var pagoTipoSelect = document.getElementById('pagoTipo');
+  var pagoPrestamoCampo = document.getElementById('pagoPrestamoCampo');
   var pagoPrestamoSelect = document.getElementById('pagoPrestamo');
+  var pagoUsuarioCampo = document.getElementById('pagoUsuarioCampo');
+  var pagoUsuarioInput = document.getElementById('pagoUsuario');
   var pagoCantidadInput = document.getElementById('pagoCantidad');
   var pagoCantidadLabel = document.getElementById('pagoCantidadLabel');
   var pagoError = document.getElementById('pagoError');
@@ -443,6 +446,8 @@
     pagoForm.reset();
     pagoTipoSelect.innerHTML = '<option value="" disabled selected>Cargando tipos…</option>';
     pagoPrestamoSelect.innerHTML = '<option value="" disabled selected>Cargando préstamos…</option>';
+    pagoPrestamoCampo.hidden = true;
+    pagoUsuarioCampo.hidden = true;
     pagoCantidadLabel.textContent = 'Cantidad';
     mostrarVista(vistaPago);
 
@@ -480,6 +485,12 @@
   pagoTipoSelect.addEventListener('change', function () {
     var info = tiposMovimiento.filter(function (t) { return t.tipo === pagoTipoSelect.value; })[0];
     pagoCantidadLabel.textContent = info ? 'Cantidad (debe ser ' + (info.signo === '-' ? 'negativa' : 'positiva') + ')' : 'Cantidad';
+
+    var requiere = info ? info.requiere : 'ninguno';
+    pagoPrestamoCampo.hidden = requiere !== 'prestamo';
+    pagoUsuarioCampo.hidden = requiere !== 'usuario';
+    if (requiere !== 'prestamo') pagoPrestamoSelect.value = '';
+    if (requiere !== 'usuario') pagoUsuarioInput.value = '';
   });
 
   pagoForm.addEventListener('submit', function (e) {
@@ -488,10 +499,21 @@
     pagoNota.hidden = true;
 
     var info = tiposMovimiento.filter(function (t) { return t.tipo === pagoTipoSelect.value; })[0];
+    var requiere = info ? info.requiere : 'ninguno';
     var cantidad = parseFloat(pagoCantidadInput.value);
 
-    if (!pagoTipoSelect.value || !pagoPrestamoSelect.value || !pagoCantidadInput.value || !pagoForm.comentarios.value.trim()) {
+    if (!pagoTipoSelect.value || !pagoCantidadInput.value || !pagoForm.comentarios.value.trim()) {
       pagoError.textContent = 'Todos los campos son obligatorios.';
+      pagoError.hidden = false;
+      return;
+    }
+    if (requiere === 'prestamo' && !pagoPrestamoSelect.value) {
+      pagoError.textContent = 'Debes seleccionar un préstamo.';
+      pagoError.hidden = false;
+      return;
+    }
+    if (requiere === 'usuario' && !pagoUsuarioInput.value.trim()) {
+      pagoError.textContent = 'Debes indicar el usuario.';
       pagoError.hidden = false;
       return;
     }
@@ -519,17 +541,22 @@
       usuario: sesion.usuario,
       contrasena: sesion.contrasena,
       tipo: pagoTipoSelect.value,
-      idPrestamo: pagoPrestamoSelect.value,
+      idPrestamo: requiere === 'prestamo' ? pagoPrestamoSelect.value : '',
+      usuarioMovimiento: requiere === 'usuario' ? pagoUsuarioInput.value.trim() : '',
       cantidad: cantidad,
       comentarios: pagoForm.comentarios.value.trim()
     })
       .then(function (json) {
         if (!json.ok) throw new Error(json.error || 'No fue posible registrar el movimiento.');
         var p = json.data.prestamo;
-        pagoNota.textContent = 'Movimiento N.º ' + json.data.id + ' registrado para ' + json.data.nombre + '. Debe ahora: ' +
-          moneyFmt.format(p.debe) + (p.estado === 'POR_CERRAR' ? ' — ¡préstamo listo para cerrar!' : '.');
+        pagoNota.textContent = p
+          ? 'Movimiento N.º ' + json.data.id + ' registrado para ' + json.data.nombre + '. Debe ahora: ' +
+            moneyFmt.format(p.debe) + (p.estado === 'POR_CERRAR' ? ' — ¡préstamo listo para cerrar!' : '.')
+          : 'Movimiento N.º ' + json.data.id + ' registrado' + (json.data.nombre ? ' para ' + json.data.nombre : '') + '.';
         pagoNota.hidden = false;
         pagoForm.reset();
+        pagoPrestamoCampo.hidden = true;
+        pagoUsuarioCampo.hidden = true;
         pagoCantidadLabel.textContent = 'Cantidad';
       })
       .catch(function (err) {

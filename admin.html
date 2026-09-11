@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/styles.css?v=0.12" />
+  <link rel="stylesheet" href="assets/css/styles.css?v=0.13" />
 </head>
 <body>
 
@@ -24,7 +24,7 @@
         <a href="solicitud.html">Solicitud</a>
         <a href="consulta.html">Consultar</a>
       </nav>
-      <span class="nav__version">v0.12</span>
+      <span class="nav__version">v0.13</span>
     </div>
   </header>
 
@@ -100,11 +100,15 @@
                 <option value="" disabled selected>Cargando tipos…</option>
               </select>
             </div>
-            <div class="field">
+            <div class="field" id="pagoPrestamoCampo" hidden>
               <label for="pagoPrestamo">Préstamo</label>
               <select id="pagoPrestamo" name="idPrestamo" required>
                 <option value="" disabled selected>Cargando préstamos…</option>
               </select>
+            </div>
+            <div class="field" id="pagoUsuarioCampo" hidden>
+              <label for="pagoUsuario">Usuario</label>
+              <input type="text" id="pagoUsuario" name="usuarioMovimiento" placeholder="Nombre del usuario" required />
             </div>
             <div class="field">
               <label for="pagoCantidad" id="pagoCantidadLabel">Cantidad</label>
@@ -250,8 +254,8 @@
     </section>
   </main>
 
-  <script src="assets/js/api.js?v=0.12"></script>
-  <script src="assets/js/format.js?v=0.12"></script>
-  <script src="assets/js/admin.js?v=0.12"></script>
+  <script src="assets/js/api.js?v=0.13"></script>
+  <script src="assets/js/format.js?v=0.13"></script>
+  <script src="assets/js/admin.js?v=0.13"></script>
 </body>
 </html>

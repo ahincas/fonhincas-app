@@ -27,6 +27,21 @@ var RECHAZADAS_HEADERS = [
 ];
 
 /**
+ * Qué dato adicional pide cada tipo de movimiento al registrarlo (ver registrarMovimiento_):
+ * 'prestamo' -> requiere el ID de un préstamo activo (abono, desembolso).
+ * 'usuario'  -> requiere el nombre del usuario que aporta o retira (aporte, retiro).
+ * cualquier otro tipo (ej. ajuste) no requiere ninguno de los dos: se registra a nivel del fondo.
+ */
+var TIPOS_QUE_REQUIEREN_PRESTAMO = ['ABONO', 'DESEMBOLSO'];
+var TIPOS_QUE_REQUIEREN_USUARIO = ['APORTE', 'RETIRO'];
+function categoriaTipoMovimiento_(tipo) {
+  var t = String(tipo).trim().toUpperCase();
+  if (TIPOS_QUE_REQUIEREN_PRESTAMO.indexOf(t) !== -1) return 'prestamo';
+  if (TIPOS_QUE_REQUIEREN_USUARIO.indexOf(t) !== -1) return 'usuario';
+  return 'ninguno';
+}
+
+/**
  * ---------- Rendimiento ----------
  * SpreadsheetApp.openById() y la lectura de CONFIGURACION se repetían varias veces
  * por cada solicitud (hasta 4 lecturas separadas de la misma hoja de configuración
@@ -84,7 +99,7 @@ function leerConfiguracion_() {
           var tipo = String(data[i3][c]).trim();
           if (!tipo) break;
           var signo = String(data[i3][c + 1]).trim().toUpperCase();
-          config.tiposMovimiento.push({ tipo: tipo, signo: (signo === '+' || signo === 'SUMA') ? '+' : '-' });
+          config.tiposMovimiento.push({ tipo: tipo, signo: (signo === '+' || signo === 'SUMA') ? '+' : '-', requiere: categoriaTipoMovimiento_(tipo) });
         }
       }
     }
@@ -906,17 +921,19 @@ function cerrarPrestamo_(body) {
   return { idPrestamo: idPrestamo, fechaCierre: hoy };
 }
 
-/** Valida y registra un movimiento (pago, préstamo, etc.) contra un préstamo activo. */
+/**
+ * Valida y registra un movimiento. Según el tipo (ver categoriaTipoMovimiento_), pide un préstamo
+ * (abono, desembolso), un usuario (aporte, retiro) o ninguno de los dos (ajuste: se reparte a
+ * nivel del fondo, no contra un préstamo ni un usuario en particular).
+ */
 function registrarMovimiento_(body) {
   validarAdmin_(body.usuario, body.contrasena);
 
   var tipo = String(body.tipo || '').trim();
-  var idPrestamo = parseInt(body.idPrestamo, 10);
   var cantidad = parseFloat(body.cantidad);
   var comentarios = String(body.comentarios || '').trim();
 
   if (!tipo) throw new Error('El tipo de movimiento es obligatorio.');
-  if (!(idPrestamo >= 0)) throw new Error('Debes indicar el ID del préstamo.');
   if (isNaN(cantidad) || cantidad === 0) throw new Error('La cantidad es obligatoria y debe ser distinta de 0.');
   if (!comentarios) throw new Error('Los comentarios son obligatorios.');
 
@@ -930,14 +947,27 @@ function registrarMovimiento_(body) {
   if (tipoInfo.signo === '-' && cantidad > 0) throw new Error('Para "' + tipo + '" la cantidad debe ser negativa.');
   if (tipoInfo.signo === '+' && cantidad < 0) throw new Error('Para "' + tipo + '" la cantidad debe ser positiva.');
 
-  var hojaPrestamos = getOCrearHojaPrestamos_();
-  var fila = getFilaPrestamoPorId_(idPrestamo); // única lectura completa de PRESTAMOS_ACTIVOS para esta operación
-  var nombrePrestamo = hojaPrestamos.getRange(fila, 4, 1, 1).getValue();
+  var requiere = tipoInfo.requiere;
+  var idPrestamo = 0, nombre = '', fila = null, estadoPrestamo = null;
 
-  var resultado = insertarMovimiento_(tipo, idPrestamo, nombrePrestamo, cantidad, comentarios);
-  var estadoPrestamo = recalcularPrestamo_(idPrestamo, fila);
+  if (requiere === 'prestamo') {
+    idPrestamo = parseInt(body.idPrestamo, 10);
+    if (!(idPrestamo >= 1)) throw new Error('Debes indicar el ID del préstamo.');
+    var hojaPrestamos = getOCrearHojaPrestamos_();
+    fila = getFilaPrestamoPorId_(idPrestamo); // única lectura completa de PRESTAMOS_ACTIVOS para esta operación
+    nombre = hojaPrestamos.getRange(fila, 4, 1, 1).getValue();
+  } else if (requiere === 'usuario') {
+    nombre = String(body.usuarioMovimiento || '').trim();
+    if (!nombre) throw new Error('Debes indicar el usuario.');
+  }
 
-  return { id: resultado.id, fecha: resultado.fecha, nombre: nombrePrestamo, prestamo: estadoPrestamo };
+  var resultado = insertarMovimiento_(tipo, idPrestamo, nombre, cantidad, comentarios);
+
+  if (requiere === 'prestamo') {
+    estadoPrestamo = recalcularPrestamo_(idPrestamo, fila);
+  }
+
+  return { id: resultado.id, fecha: resultado.fecha, nombre: nombre, prestamo: estadoPrestamo };
 }
 
 /** Agrega una fila a MOVIMIENTOS con ID consecutivo (desde 0) y fecha automáticos. */
