@@ -223,12 +223,6 @@ function doPost(e) {
         return jsonResponse_({ ok: true, data: { prestamos: listarPrestamosConEstadoDetallado_(body) } });
       case 'cerrarPrestamo':
         return jsonResponse_({ ok: true, data: cerrarPrestamo_(body) });
-      case 'limpiarDatosPrueba':
-        // SOLO para la fase de desarrollo: borra filas de datos (no encabezados) de
-        // SOLICITUD, PRESTAMOS_ACTIVOS y MOVIMIENTOS, para que los ID consecutivos
-        // vuelvan a empezar en 0/1. Quitar esta acción antes del primer release.
-        validarAdmin_(body.usuario, body.contrasena);
-        return jsonResponse_({ ok: true, data: limpiarDatosPrueba_() });
       default:
         throw new Error('Acción inválida.');
     }
@@ -601,26 +595,6 @@ function getOCrearCarpetaHija_(padre, nombre) {
   var it = padre.getFoldersByName(nombre);
   if (it.hasNext()) return it.next();
   return padre.createFolder(nombre);
-}
-
-/** Solo desarrollo: vacía las filas de datos de SOLICITUD, PRESTAMOS_ACTIVOS y MOVIMIENTOS (conserva encabezados). */
-function limpiarDatosPrueba_() {
-  var hojas = [
-    getOCrearHojaSolicitudes_(), getOCrearHojaPrestamos_(), getOCrearHojaMovimientos_(),
-    getOCrearHojaHistorial_(), getOCrearHojaRechazadas_()
-  ];
-  var limpiadas = [];
-  hojas.forEach(function (sheet) {
-    var filas = sheet.getLastRow() - 1;
-    if (filas > 0) sheet.deleteRows(2, filas);
-    limpiadas.push(sheet.getName());
-  });
-
-  var props = PropertiesService.getScriptProperties();
-  props.deleteProperty('PROXIMO_ID_PRESTAMO');
-  props.deleteProperty('PROXIMO_ID_MOVIMIENTO');
-
-  return { limpiadas: limpiadas };
 }
 
 /** Obtiene la hoja PRESTAMOS_ACTIVOS, creándola (o migrando sus encabezados, si está vacía) según PRESTAMOS_HEADERS. */
