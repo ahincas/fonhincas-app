@@ -9,14 +9,10 @@
   var nota = document.getElementById('solicitudNota');
   var submitBtn = document.getElementById('solicitudSubmit');
 
-  // Fecha mínima: hoy (hora Bogotá), no se permite el pasado.
-  fechaInput.min = hoyBogota();
-
-  function hoyBogota() {
-    var partes = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).formatToParts(new Date());
-    var m = {};
-    partes.forEach(function (p) { m[p.type] = p.value; });
-    return m.year + '-' + m.month + '-' + m.day;
+  // Fecha mínima: hoy (hora Bogotá), salvo que el backend esté en modo de carga histórica (permitirFechasPasadas).
+  // Se fija al llegar la respuesta de 'servicios'; el backend valida lo mismo, así que esto es solo ayuda visual.
+  function aplicarRestriccionFecha(permitirPasadas) {
+    fechaInput.min = permitirPasadas ? '' : FonhincasFormat.hoyBogota();
   }
 
   // Precarga monto/cuotas si venimos del simulador.
@@ -30,6 +26,7 @@
   })
     .then(function (json) {
       if (!json.ok) throw new Error(json.error || 'No fue posible cargar los servicios.');
+      aplicarRestriccionFecha(json.data.permitirFechasPasadas === true);
       servicioSelect.innerHTML = '<option value="" disabled selected>Selecciona un servicio</option>' +
         json.data.servicios.map(function (s) {
           return '<option value="' + s.replace(/"/g, '&quot;') + '">' + s + '</option>';
@@ -61,7 +58,7 @@
     errorBox.hidden = true;
     nota.hidden = true;
 
-    if (form.fecha.value < fechaInput.min) {
+    if (fechaInput.min && form.fecha.value < fechaInput.min) {
       errorBox.textContent = 'La fecha no puede ser anterior a hoy.';
       errorBox.hidden = false;
       return;

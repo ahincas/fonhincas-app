@@ -25,7 +25,15 @@
       '<tbody>' + rows + '</tbody></table></div>';
   }
 
+  function hoyBogota() {
+    var partes = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).formatToParts(new Date());
+    var m = {};
+    partes.forEach(function (p) { m[p.type] = p.value; });
+    return m.year + '-' + m.month + '-' + m.day;
+  }
+
   window.FonhincasFormat = {
+    hoyBogota: hoyBogota,
     moneyFmt: moneyFmt,
     moneyFmt2: moneyFmt2,
     escapeHtml: escapeHtml,

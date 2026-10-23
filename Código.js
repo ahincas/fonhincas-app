@@ -14,6 +14,23 @@ var ZONA_HORARIA = 'America/Bogota';
 var HORA_RECORDATORIO = '20:30:00-05:00';
 var MESES_ES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
 var UMBRAL_CIERRE = 1; // "debe" en pesos por debajo del cual el préstamo se considera listo para cerrar
+// Modo de carga histórica: permite solicitudes con fecha pasada y, al aprobarlas, usa esa fecha como fecha de
+// revisión y base de la primera cuota. Poner en false cuando termine la carga de préstamos existentes.
+var PERMITIR_FECHAS_PASADAS = true;
+
+function hoyBogota_() {
+  return Utilities.formatDate(new Date(), ZONA_HORARIA, 'yyyy-MM-dd');
+}
+
+/** Fecha opcional de un movimiento o cierre ('yyyy-MM-dd'): vacía = hoy; no puede ser inválida ni futura. */
+function fechaOpcionalPasada_(valor) {
+  var hoy = hoyBogota_();
+  var f = String(valor || '').trim();
+  if (!f) return hoy;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) throw new Error('La fecha no es válida.');
+  if (f > hoy) throw new Error('La fecha no puede ser futura.');
+  return f;
+}
 var PRESTAMOS_HEADERS = [
   'Fecha de revisión', 'Administrador', 'ID préstamo', 'Nombre', 'Monto', 'Cuotas', 'Valor cuota', 'Tasa interés',
   'Fecha de pago', 'Observaciones', 'PDF', 'Pagado', 'Debe', 'Cuotas faltan', 'Siguiente cuota', 'Estado'
@@ -159,7 +176,7 @@ function doGet(e) {
     var params = (e && e.parameter) || {};
 
     if (params.accion === 'servicios') {
-      return jsonResponse_({ ok: true, data: { servicios: getServiciosDisponibles_() } });
+      return jsonResponse_({ ok: true, data: { servicios: getServiciosDisponibles_(), permitirFechasPasadas: PERMITIR_FECHAS_PASADAS } });
     }
 
     // Consulta pública de préstamos: sin autenticación (a propósito, ver consultarPrestamos_).
@@ -248,8 +265,7 @@ function guardarSolicitud_(body) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) throw new Error('El correo no es válido.');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new Error('La fecha no es válida.');
 
-  var hoy = Utilities.formatDate(new Date(), 'America/Bogota', 'yyyy-MM-dd');
-  if (fecha < hoy) throw new Error('La fecha no puede ser anterior a hoy.');
+  if (!PERMITIR_FECHAS_PASADAS && fecha < hoyBogota_()) throw new Error('La fecha no puede ser anterior a hoy.');
 
   if (getServiciosDisponibles_().indexOf(servicio) === -1) throw new Error('El servicio seleccionado no es válido.');
   if (!(monto > 0)) throw new Error('El monto debe ser mayor a 0.');
@@ -324,13 +340,16 @@ function detalleSolicitud_(fila, montoOverride, cuotasOverride) {
   var cuotas = (cuotasOverride !== undefined && cuotasOverride !== null && cuotasOverride !== '') ? parseInt(cuotasOverride, 10) : cuotasOriginal;
   var tasa = getTasaMensual_();
   var sim = simularPorPlazo_(monto, tasa, cuotas);
-  var hoy = Utilities.formatDate(new Date(), ZONA_HORARIA, 'yyyy-MM-dd');
+  var hoy = hoyBogota_();
+  // En modo histórico, una solicitud con fecha pasada se aprueba "en esa fecha"; si no, siempre cuenta hoy.
+  var historico = PERMITIR_FECHAS_PASADAS && /^\d{4}-\d{2}-\d{2}$/.test(fechaSolicitud) && fechaSolicitud < hoy;
+  var fechaBase = historico ? fechaSolicitud : hoy;
 
   return {
     fila: fila, nombre: nombre, correo: correo, fechaSolicitud: fechaSolicitud, servicio: servicio,
     monto: monto, cuotas: cuotas, montoOriginal: montoOriginal, cuotasOriginal: cuotasOriginal,
-    tasa: tasa, cuota: sim.cuota, tabla: sim.tabla,
-    fechaRevision: hoy, fechaPago: calcularFechaPago_(hoy)
+    tasa: tasa, cuota: sim.cuota, tabla: sim.tabla, historico: historico,
+    fechaRevision: fechaBase, fechaPago: calcularFechaPago_(fechaBase)
   };
 }
 
@@ -405,7 +424,7 @@ function guardarPrestamo_(body) {
     tabla: detalle.tabla, firmaBlob: firmaBlob, fotoBlob: fotoBlob, notaAjuste: notaAjuste
   });
 
-  var carpeta = getOCrearCarpetaRespaldosMes_();
+  var carpeta = getOCrearCarpetaRespaldosMes_(detalle.fechaRevision);
   var nombreArchivo = 'Prestamo_' + idPrestamo + '_' + detalle.nombre.replace(/[^a-zA-Z0-9]+/g, '_') + '.pdf';
   var archivoPdf = carpeta.createFile(pdf).setName(nombreArchivo);
 
@@ -423,7 +442,7 @@ function guardarPrestamo_(body) {
     var tipoDesembolso = getTiposMovimiento_().filter(function (t) { return t.tipo.toUpperCase() === 'DESEMBOLSO'; })[0];
     if (tipoDesembolso) {
       var cantidadDesembolso = tipoDesembolso.signo === '-' ? -detalle.monto : detalle.monto;
-      insertarMovimiento_(tipoDesembolso.tipo, idPrestamo, detalle.nombre, cantidadDesembolso, 'Desembolso automático al aprobar el préstamo.');
+      insertarMovimiento_(tipoDesembolso.tipo, idPrestamo, detalle.nombre, cantidadDesembolso, 'Desembolso automático al aprobar el préstamo.', detalle.fechaRevision);
     }
   } catch (err) {
     // El préstamo ya quedó guardado; un fallo al registrar el desembolso automático no debe invalidar la aprobación.
@@ -436,7 +455,8 @@ function guardarPrestamo_(body) {
   }
 
   try {
-    if (detalle.correo) notificarAprobacion_(detalle.correo, detalle.nombre, pdf, nombreArchivo, notaAjuste);
+    // El admin puede desactivar el correo (típico al cargar préstamos históricos); por defecto se envía.
+    if (detalle.correo && body.enviarCorreo !== false) notificarAprobacion_(detalle.correo, detalle.nombre, pdf, nombreArchivo, notaAjuste);
   } catch (err) {
     // El préstamo ya quedó guardado; un fallo al enviar el correo no debe invalidar la aprobación.
   }
@@ -500,13 +520,15 @@ function notificarRechazo_(correo, nombre, motivo) {
   MailApp.sendEmail(correo, asunto, cuerpo);
 }
 
-/** Crea un evento de todo el día por cada cuota, uno por mes, empezando en la fecha de la primera cuota. */
+/** Crea un evento de todo el día por cada cuota, uno por mes, empezando en la fecha de la primera cuota. Las cuotas con fecha ya pasada se omiten. */
 function crearEventosCuotasPrestamo_(idPrestamo, nombre, cuotas, valorCuota, fechaPrimeraCuota) {
   var calendario = CalendarApp.getDefaultCalendar();
   var montoTexto = '$' + Math.round(valorCuota).toLocaleString('es-CO');
+  var hoy = hoyBogota_();
 
   for (var i = 0; i < cuotas; i++) {
     var fechaStr = i === 0 ? fechaPrimeraCuota : sumarMeses_(fechaPrimeraCuota, i);
+    if (fechaStr < hoy) continue;
     var fecha = new Date(fechaStr + 'T12:00:00-05:00');
     calendario.createAllDayEvent(
       'Cuota ' + (i + 1) + '/' + cuotas + ' — ' + nombre + ' — ' + montoTexto + ' (Préstamo N.º ' + idPrestamo + ')',
@@ -580,11 +602,11 @@ function blobFromDataUrl_(dataUrl, nombreArchivo) {
   return Utilities.newBlob(Utilities.base64Decode(match[2]), match[1], nombreArchivo);
 }
 
-/** Carpeta de Drive respaldos/AAAA_MES (hoy), creándola si no existe. */
-function getOCrearCarpetaRespaldosMes_() {
-  var ahora = new Date();
-  var anio = Utilities.formatDate(ahora, ZONA_HORARIA, 'yyyy');
-  var mesIdx = parseInt(Utilities.formatDate(ahora, ZONA_HORARIA, 'M'), 10) - 1;
+/** Carpeta de Drive respaldos/AAAA_MES de la fecha dada ('yyyy-MM-dd'; por defecto hoy), creándola si no existe. */
+function getOCrearCarpetaRespaldosMes_(fechaStr) {
+  var partes = (fechaStr || hoyBogota_()).split('-');
+  var anio = partes[0];
+  var mesIdx = parseInt(partes[1], 10) - 1;
   var nombreCarpeta = anio + '_' + MESES_ES[mesIdx];
 
   var raiz = getOCrearCarpetaHija_(DriveApp.getRootFolder(), 'respaldos');
@@ -888,11 +910,11 @@ function cerrarPrestamo_(body) {
   if (Number(datos[12]) > UMBRAL_CIERRE) throw new Error('Este préstamo todavía tiene saldo pendiente.');
 
   datos[15] = 'COMPLETO'; // en PRESTAMOS_ACTIVOS decía POR_CERRAR; en el historial ya es un préstamo completo.
-  var hoy = Utilities.formatDate(new Date(), ZONA_HORARIA, 'yyyy-MM-dd');
-  getOCrearHojaHistorial_().appendRow(datos.concat([hoy]));
+  var fechaCierre = fechaOpcionalPasada_(body.fecha);
+  getOCrearHojaHistorial_().appendRow(datos.concat([fechaCierre]));
   hojaPrestamos.deleteRow(fila);
 
-  return { idPrestamo: idPrestamo, fechaCierre: hoy };
+  return { idPrestamo: idPrestamo, fechaCierre: fechaCierre };
 }
 
 /**
@@ -906,6 +928,7 @@ function registrarMovimiento_(body) {
   var tipo = String(body.tipo || '').trim();
   var cantidad = parseFloat(body.cantidad);
   var comentarios = String(body.comentarios || '').trim();
+  var fecha = fechaOpcionalPasada_(body.fecha);
 
   if (!tipo) throw new Error('El tipo de movimiento es obligatorio.');
   if (isNaN(cantidad) || cantidad === 0) throw new Error('La cantidad es obligatoria y debe ser distinta de 0.');
@@ -935,7 +958,7 @@ function registrarMovimiento_(body) {
     if (!nombre) throw new Error('Debes indicar el usuario.');
   }
 
-  var resultado = insertarMovimiento_(tipo, idPrestamo, nombre, cantidad, comentarios);
+  var resultado = insertarMovimiento_(tipo, idPrestamo, nombre, cantidad, comentarios, fecha);
 
   if (requiere === 'prestamo') {
     estadoPrestamo = recalcularPrestamo_(idPrestamo, fila);
@@ -944,15 +967,15 @@ function registrarMovimiento_(body) {
   return { id: resultado.id, fecha: resultado.fecha, nombre: nombre, prestamo: estadoPrestamo };
 }
 
-/** Agrega una fila a MOVIMIENTOS con ID consecutivo (desde 0) y fecha automáticos. */
-function insertarMovimiento_(tipo, idPrestamo, nombre, cantidad, comentarios) {
+/** Agrega una fila a MOVIMIENTOS con ID consecutivo (desde 0). La fecha es la indicada ('yyyy-MM-dd') o, por defecto, hoy. */
+function insertarMovimiento_(tipo, idPrestamo, nombre, cantidad, comentarios, fecha) {
   var sheet = getOCrearHojaMovimientos_();
   var nuevoId = siguienteIdMovimiento_();
-  var hoy = Utilities.formatDate(new Date(), ZONA_HORARIA, 'yyyy-MM-dd');
+  var fechaMov = fecha || hoyBogota_();
 
-  sheet.appendRow([nuevoId, hoy, tipo, idPrestamo, nombre, cantidad, comentarios]);
+  sheet.appendRow([nuevoId, fechaMov, tipo, idPrestamo, nombre, cantidad, comentarios]);
 
-  return { id: nuevoId, fecha: hoy };
+  return { id: nuevoId, fecha: fechaMov };
 }
 
 /** Obtiene la hoja SOLICITUD, creándola con encabezados si todavía no existe. */

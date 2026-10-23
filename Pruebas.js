@@ -68,6 +68,13 @@ function ejecutarPruebas() {
   assert('diasEntre_ diferencia negativa', diasEntre_('2026-03-10', '2026-03-01') === -9);
   assert('diasEntre_ misma fecha', diasEntre_('2026-03-01', '2026-03-01') === 0);
 
+  // ---------- fechaOpcionalPasada_ ----------
+  function lanza(fn) { try { fn(); return false; } catch (err) { return true; } }
+  assert('fechaOpcionalPasada_ vacía = hoy', fechaOpcionalPasada_('') === hoyBogota_());
+  assert('fechaOpcionalPasada_ acepta fecha pasada', fechaOpcionalPasada_('2024-05-10') === '2024-05-10');
+  assert('fechaOpcionalPasada_ rechaza fecha futura', lanza(function () { fechaOpcionalPasada_('2999-01-01'); }));
+  assert('fechaOpcionalPasada_ rechaza formato inválido', lanza(function () { fechaOpcionalPasada_('10/05/2024'); }));
+
   // ---------- siguienteIdPrestamo_ / siguienteIdMovimiento_ (con guardado/restauración de las propiedades reales) ----------
   (function () {
     var props = PropertiesService.getScriptProperties();

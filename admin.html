@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/styles.css?v=0.15" />
+  <link rel="stylesheet" href="assets/css/styles.css?v=0.16" />
 </head>
 <body>
 
@@ -24,7 +24,7 @@
         <a href="solicitud.html">Solicitud</a>
         <a href="consulta.html">Consultar</a>
       </nav>
-      <span class="nav__version">v0.15</span>
+      <span class="nav__version">v0.16</span>
     </div>
   </header>
 
@@ -109,6 +109,10 @@
             <div class="field" id="pagoUsuarioCampo" hidden>
               <label for="pagoUsuario">Usuario</label>
               <input type="text" id="pagoUsuario" name="usuarioMovimiento" placeholder="Nombre del usuario" required />
+            </div>
+            <div class="field">
+              <label for="pagoFecha">Fecha del movimiento (opcional, por defecto hoy)</label>
+              <input type="date" id="pagoFecha" name="fecha" />
             </div>
             <div class="field">
               <label for="pagoCantidad" id="pagoCantidadLabel">Cantidad</label>
@@ -218,6 +222,17 @@
             </div>
 
             <p class="form-note" id="dAjusteNota" hidden></p>
+            <p class="form-note" id="dHistoricoNota" hidden></p>
+
+            <div class="field">
+              <div class="switch-row">
+                <span class="switch-label">Enviar correo de aprobación al solicitante</span>
+                <label class="switch">
+                  <input type="checkbox" id="dEnviarCorreo" checked />
+                  <span class="track"></span>
+                </label>
+              </div>
+            </div>
 
             <div class="field">
               <label for="observaciones">Observaciones (opcional)</label>
@@ -254,8 +269,8 @@
     </section>
   </main>
 
-  <script src="assets/js/api.js?v=0.15"></script>
-  <script src="assets/js/format.js?v=0.15"></script>
-  <script src="assets/js/admin.js?v=0.15"></script>
+  <script src="assets/js/api.js?v=0.16"></script>
+  <script src="assets/js/format.js?v=0.16"></script>
+  <script src="assets/js/admin.js?v=0.16"></script>
 </body>
 </html>

@@ -165,6 +165,8 @@
   var dMontoInput = document.getElementById('dMontoInput');
   var dCuotasInput = document.getElementById('dCuotasInput');
   var dAjusteNota = document.getElementById('dAjusteNota');
+  var dHistoricoNota = document.getElementById('dHistoricoNota');
+  var dEnviarCorreo = document.getElementById('dEnviarCorreo');
   var filaActual = null;
   var detalleOriginal = null;
   var recalcularTimeout = null;
@@ -204,6 +206,16 @@
     document.getElementById('dFechaPago').textContent = d.fechaPago;
     detalleForm.observaciones.value = '';
     actualizarAjusteNota(d);
+
+    // Solicitud con fecha pasada = préstamo histórico: se aprueba en esa fecha y, por defecto, sin avisar al solicitante.
+    dEnviarCorreo.checked = !d.historico;
+    if (d.historico) {
+      dHistoricoNota.textContent = 'Solicitud con fecha pasada (' + d.fechaSolicitud + '): se usará como fecha de revisión y base de la primera cuota. ' +
+        'El correo de aprobación viene desactivado.';
+      dHistoricoNota.hidden = false;
+    } else {
+      dHistoricoNota.hidden = true;
+    }
 
     document.getElementById('dTablaWrap').innerHTML = FonhincasFormat.tablaAmortizacion(d.tabla);
   }
@@ -418,6 +430,7 @@
       fila: filaActual,
       monto: monto,
       cuotas: cuotas,
+      enviarCorreo: dEnviarCorreo.checked,
       observaciones: detalleForm.observaciones.value,
       firma: canvas.toDataURL('image/png'),
       fotoDesembolso: fotoDataUrl
@@ -446,6 +459,7 @@
   var pagoPrestamoSelect = document.getElementById('pagoPrestamo');
   var pagoUsuarioCampo = document.getElementById('pagoUsuarioCampo');
   var pagoUsuarioInput = document.getElementById('pagoUsuario');
+  var pagoFechaInput = document.getElementById('pagoFecha');
   var pagoCantidadInput = document.getElementById('pagoCantidad');
   var pagoCantidadLabel = document.getElementById('pagoCantidadLabel');
   var pagoError = document.getElementById('pagoError');
@@ -462,6 +476,7 @@
     pagoPrestamoCampo.hidden = true;
     pagoUsuarioCampo.hidden = true;
     pagoCantidadLabel.textContent = 'Cantidad';
+    pagoFechaInput.max = FonhincasFormat.hoyBogota();
     mostrarVista(vistaPago);
 
     Promise.all([
@@ -556,6 +571,7 @@
       tipo: pagoTipoSelect.value,
       idPrestamo: requiere === 'prestamo' ? pagoPrestamoSelect.value : '',
       usuarioMovimiento: requiere === 'usuario' ? pagoUsuarioInput.value.trim() : '',
+      fecha: pagoFechaInput.value,
       cantidad: cantidad,
       comentarios: pagoForm.comentarios.value.trim()
     })
@@ -610,20 +626,25 @@
       return '<div class="card" style="margin-bottom: var(--space-2);">' +
         '<div class="list-item__head"><h3>N.º ' + p.idPrestamo + ' — ' + escapeHtml(p.nombre) + '</h3><span class="list-item__monto">' + moneyFmt.format(p.pagado) + ' pagado</span></div>' +
         '<p>Monto original: ' + moneyFmt.format(p.monto) + ' · Saldo pendiente: ' + moneyFmt.format(p.debe) + '</p>' +
+        '<div class="field" style="margin-top: var(--space-2);"><label>Fecha de cierre (opcional, por defecto hoy)</label>' +
+        '<input type="date" data-fecha-id="' + p.idPrestamo + '" max="' + FonhincasFormat.hoyBogota() + '" /></div>' +
         '<button class="btn btn--primary" type="button" data-id="' + p.idPrestamo + '" style="margin-top: var(--space-2);">Confirmar cierre</button>' +
         '</div>';
     }).join('');
 
     listaCierreEl.querySelectorAll('button[data-id]').forEach(function (btn) {
-      btn.addEventListener('click', function () { confirmarCierre(parseInt(btn.dataset.id, 10), btn); });
+      btn.addEventListener('click', function () {
+        var fechaInput = listaCierreEl.querySelector('input[data-fecha-id="' + btn.dataset.id + '"]');
+        confirmarCierre(parseInt(btn.dataset.id, 10), btn, fechaInput ? fechaInput.value : '');
+      });
     });
   }
 
-  function confirmarCierre(idPrestamo, btn) {
+  function confirmarCierre(idPrestamo, btn, fecha) {
     btn.disabled = true;
     btn.textContent = 'Cerrando…';
 
-    FonhincasAPI.postJson({ accion: 'cerrarPrestamo', usuario: sesion.usuario, contrasena: sesion.contrasena, idPrestamo: idPrestamo })
+    FonhincasAPI.postJson({ accion: 'cerrarPrestamo', usuario: sesion.usuario, contrasena: sesion.contrasena, idPrestamo: idPrestamo, fecha: fecha })
       .then(function (json) {
         if (!json.ok) throw new Error(json.error || 'No fue posible cerrar el préstamo.');
         cargarCierre();
