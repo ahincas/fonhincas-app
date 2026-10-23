@@ -22,9 +22,21 @@
     [vistaLogin, vistaMenu, vistaPago, vistaLista, vistaCierre, vistaMora, vistaCalendario, vistaDetalle].forEach(function (v) { v.hidden = (v !== vista); });
   }
 
+  // La sesión vive en sessionStorage: sobrevive a navegar a otras páginas del sitio y se borra al cerrar la pestaña.
+  var CLAVE_SESION = 'fonhincas_admin_sesion';
+
+  function guardarSesion() {
+    try { sessionStorage.setItem(CLAVE_SESION, JSON.stringify(sesion)); } catch (err) { /* sin storage: la sesión dura solo esta página */ }
+  }
+
+  function borrarSesionGuardada() {
+    try { sessionStorage.removeItem(CLAVE_SESION); } catch (err) { /* nada que borrar */ }
+  }
+
   function salir() {
     sesion.usuario = null;
     sesion.contrasena = null;
+    borrarSesionGuardada();
     mostrarVista(vistaLogin);
   }
 
@@ -48,6 +60,7 @@
         if (!json.ok) throw new Error(json.error || 'No fue posible iniciar sesión.');
         sesion.usuario = json.data.usuario;
         sesion.contrasena = contrasena;
+        guardarSesion();
         loginForm.reset();
         mostrarVista(vistaMenu);
         actualizarBadgeCierre();
@@ -729,5 +742,29 @@
     if (calendarioMes > 11) { calendarioMes = 0; calendarioAnio++; }
     renderCalendario();
   });
+
+  // ---------- Restaurar sesión al volver a esta página ----------
+
+  (function restaurarSesion() {
+    var guardada = null;
+    try { guardada = JSON.parse(sessionStorage.getItem(CLAVE_SESION)); } catch (err) { /* sin sesión guardada */ }
+    if (!guardada || !guardada.usuario || !guardada.contrasena) return;
+
+    // Se revalida contra el backend (por si cambió la contraseña) y se oculta el login mientras tanto para evitar parpadeo.
+    vistaLogin.hidden = true;
+    FonhincasAPI.postJson({ accion: 'login', usuario: guardada.usuario, contrasena: guardada.contrasena })
+      .then(function (json) {
+        if (!json.ok) throw new Error(json.error);
+        sesion.usuario = json.data.usuario;
+        sesion.contrasena = guardada.contrasena;
+        mostrarVista(vistaMenu);
+        actualizarBadgeCierre();
+        actualizarBadgeMora();
+      })
+      .catch(function () {
+        borrarSesionGuardada();
+        mostrarVista(vistaLogin);
+      });
+  })();
 
 })();
