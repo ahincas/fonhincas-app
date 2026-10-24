@@ -197,7 +197,7 @@
     document.getElementById('dFechaRevision').textContent = d.fechaRevision;
     document.getElementById('dAdministrador').textContent = sesion.usuario;
     document.getElementById('dNombre').textContent = d.nombre;
-    document.getElementById('dCorreo').textContent = d.correo;
+    document.getElementById('dCorreo').textContent = d.correo || '— (sin correo)';
     document.getElementById('dServicio').textContent = d.servicio;
     dMontoInput.value = d.monto;
     dCuotasInput.value = d.cuotas;
@@ -208,7 +208,9 @@
     actualizarAjusteNota(d);
 
     // Solicitud con fecha pasada = préstamo histórico: se aprueba en esa fecha y, por defecto, sin avisar al solicitante.
-    dEnviarCorreo.checked = !d.historico;
+    // Sin correo registrado no hay a quién avisar: el interruptor queda apagado y bloqueado.
+    dEnviarCorreo.checked = !!d.correo && !d.historico;
+    dEnviarCorreo.disabled = !d.correo;
     if (d.historico) {
       dHistoricoNota.textContent = 'Solicitud con fecha pasada (' + d.fechaSolicitud + '): se usará como fecha de revisión y base de la primera cuota. ' +
         'El correo de aprobación viene desactivado.';

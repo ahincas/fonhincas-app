@@ -11,6 +11,12 @@
 
   // Fecha mínima: hoy (hora Bogotá), salvo que el backend esté en modo de carga histórica (permitirFechasPasadas).
   // Se fija al llegar la respuesta de 'servicios'; el backend valida lo mismo, así que esto es solo ayuda visual.
+  // El correo es obligatorio salvo que el backend lo haya hecho opcional (carga histórica). Se aplica al llegar 'servicios'.
+  function aplicarRequisitoCorreo(obligatorio) {
+    form.correo.required = obligatorio;
+    document.getElementById('correoLabel').textContent = obligatorio ? 'Correo' : 'Correo (opcional)';
+  }
+
   function aplicarRestriccionFecha(permitirPasadas) {
     fechaInput.min = permitirPasadas ? '' : FonhincasFormat.hoyBogota();
   }
@@ -27,6 +33,7 @@
     .then(function (json) {
       if (!json.ok) throw new Error(json.error || 'No fue posible cargar los servicios.');
       aplicarRestriccionFecha(json.data.permitirFechasPasadas === true);
+      aplicarRequisitoCorreo(json.data.correoObligatorio !== false);
       servicioSelect.innerHTML = '<option value="" disabled selected>Selecciona un servicio</option>' +
         json.data.servicios.map(function (s) {
           return '<option value="' + s.replace(/"/g, '&quot;') + '">' + s + '</option>';

@@ -17,6 +17,9 @@ var UMBRAL_CIERRE = 1; // "debe" en pesos por debajo del cual el préstamo se co
 // Modo de carga histórica: permite solicitudes con fecha pasada y, al aprobarlas, usa esa fecha como fecha de
 // revisión y base de la primera cuota. Poner en false cuando termine la carga de préstamos existentes.
 var PERMITIR_FECHAS_PASADAS = true;
+// En la carga histórica no siempre se tiene el correo del solicitante; con false el campo es opcional (si se escribe, debe ser válido).
+// Poner en true cuando termine la carga.
+var CORREO_SOLICITUD_OBLIGATORIO = false;
 
 function hoyBogota_() {
   return Utilities.formatDate(new Date(), ZONA_HORARIA, 'yyyy-MM-dd');
@@ -176,7 +179,7 @@ function doGet(e) {
     var params = (e && e.parameter) || {};
 
     if (params.accion === 'servicios') {
-      return jsonResponse_({ ok: true, data: { servicios: getServiciosDisponibles_(), permitirFechasPasadas: PERMITIR_FECHAS_PASADAS } });
+      return jsonResponse_({ ok: true, data: { servicios: getServiciosDisponibles_(), permitirFechasPasadas: PERMITIR_FECHAS_PASADAS, correoObligatorio: CORREO_SOLICITUD_OBLIGATORIO } });
     }
 
     // Consulta pública de préstamos: sin autenticación (a propósito, ver consultarPrestamos_).
@@ -262,7 +265,7 @@ function guardarSolicitud_(body) {
   var cuentaLlave = consignacion ? String(consignacion.cuentaLlave || '').trim() : '';
 
   if (!nombre) throw new Error('El nombre es obligatorio.');
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) throw new Error('El correo no es válido.');
+  if ((CORREO_SOLICITUD_OBLIGATORIO || correo) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) throw new Error('El correo no es válido.');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new Error('La fecha no es válida.');
 
   if (!PERMITIR_FECHAS_PASADAS && fecha < hoyBogota_()) throw new Error('La fecha no puede ser anterior a hoy.');
